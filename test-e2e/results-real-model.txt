@@ -1,0 +1,21 @@
+=== Real-model rehearsal (npm run rehearse), 20 Nov 2026 ===
+TrueForge 0.185.1 local, model mercury/coder (Inception mercury-2, custom OpenAI-compatible provider)
+Flask 3.1.3 (22d92470), venv: pytest<9, werkzeug==3.1.0, asgiref (full pytest -q: 485 passed)
+
+Task A (inline, ciao-forge-inline): 2 runs, both PASS. FLASK_DEBUG=off -> False. 3.0-5.5 s, ~6k tokens in.
+
+Task B (agent mode, ciao-forge), final instructions: 2 runs
+  run 1  75 s  cli.py, tests/test_cli.py, docs/cli.rst   test_cli 56 passed, config in --help   PASS
+  run 2  49 s  cli.py, tests/test_cli.py                 (docs missed)                         PARTIAL
+  plus 3 earlier runs with the requirements checklist: all three files each time (two used a new test file)
+  every run: secrets masked (checked with --keep: API_TOKEN/DB_PASSWORD/SECRET_KEY -> "***"), undo complete, git status clean
+
+Before the fixes (same model):
+  - werkzeug 3.1.9 made test_reqctx fail at baseline, and the agent edited ctx.py and app.py to "fix" it (243 s, 4.1M tokens in)
+  - rehearse undo capped at 20 changes, which left Flask dirty after a long run
+
+After the explain_history-before-edit instruction (deferred tool, for B4): 2 more runs
+  run 1  62 s  cli.py, docs/cli.rst, tests/test_cli.py  get_tool_info -> explain_history visible   PASS
+  run 2  93 s  cli.py, docs/cli.rst, tests/test_cli.py  get_tool_info -> explain_history visible   PASS
+Task C (primary key set to invalid via PRIMARY_API_KEY=invalid npm run models): 401 on primary, automatic switch to
+  ciao-forge-fallback-inline (fallback/coder), FLASK_DEBUG=off -> False, git status clean.   PASS

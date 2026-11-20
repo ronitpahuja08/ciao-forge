@@ -1,0 +1,33 @@
+{
+  "_comment": "Example model configuration for TrueForge. Copy to config/models.json, keep only the providers you use, and run `npm run models`. Any OpenAI-compatible endpoint works as a \"custom\" provider; TrueForge's built-in provider types (openai, anthropic, google-gemini, together-ai, fireworks, ...) work too. Keys come from .env, never from this file. Model ids below are examples: use ids your account can call.",
+  "trueforgeUrl": "http://localhost:8790",
+  "providers": [
+    {
+      "type": "custom",
+      "name": "primary",
+      "baseUrl": "https://api.groq.com/openai/v1",
+      "auth": { "apiKey": "${PRIMARY_API_KEY}" },
+      "models": [
+        { "name": "coder", "modelId": "llama-3.3-70b-versatile", "properties": { "contextLength": 131072, "maxOutputTokens": 8192 } }
+      ]
+    },
+    {
+      "type": "custom",
+      "name": "fallback",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "auth": { "apiKey": "${FALLBACK_API_KEY}" },
+      "models": [
+        { "name": "coder", "modelId": "qwen/qwen3-coder:free", "properties": { "contextLength": 131072, "maxOutputTokens": 8192 } }
+      ]
+    },
+    {
+      "type": "custom",
+      "name": "local",
+      "baseUrl": "http://127.0.0.1:8080/v1",
+      "auth": { "apiKey": "not-needed" },
+      "models": [
+        { "name": "coder", "modelId": "qwen2.5-coder-7b-instruct", "properties": { "contextLength": 32768, "maxOutputTokens": 4096 } }
+      ]
+    }
+  ]
+}

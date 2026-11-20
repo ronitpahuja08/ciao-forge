@@ -1,0 +1,17 @@
+=== cIAo Forge extension-host E2E (VS Code 1.144.0) ===
+PASS  extension is installed and activates
+PASS  all commands are registered
+PASS  MCP server starts on loopback and registers itself with TrueForge  [http://127.0.0.1:54630/mcp]
+PASS  setup command creates both agents from agent/*.json with the chosen models
+PASS  agent panel view opens
+PASS  agent mode: diff is shown for review and nothing is on disk yet  [$(check) Accept hunk 1/1 | $(x) Reject | -1 +1 · preview]
+PASS  accepting a hunk from the editor applies it via WorkspaceEdit and saves
+PASS  rejecting the second file's hunk leaves that file untouched and the run continues
+PASS  undo command restores applied changes one by one
+PASS  inline edit: selection + instruction -> reviewed diff in the editor -> accept  [2 hunks, 1 accepted]
+PASS  native editor undo (Ctrl+Z) also reverts the applied inline edit
+PASS  stop command cancels a streaming run immediately and the editor stays responsive  [editor answered in 5 ms mid-stream; stop took 15 ms]
+PASS  cancel after an applied edit rolls it back
+PASS  invalid key on the primary: automatic fallback, workspace unchanged until review  [Primary agent "ciao-forge" failed: the model provider rejected the credentials (Request failed (401): Incorrect API key provided.). Switching automati]
+
+14 passed, 0 failed

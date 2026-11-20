@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- Dev-only visual preview of the two webviews outside VS Code (stubbed API, sample state). Open with ?view=review or ?view=panel. -->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root {
+        --vscode-font-family: "Segoe UI", system-ui, sans-serif; --vscode-font-size: 13px; --vscode-foreground: #cccccc;
+        --vscode-editor-font-family: Consolas, monospace; --vscode-editor-font-size: 12.5px;
+        --vscode-textCodeBlock-background: #2a2a2a; --vscode-button-secondaryForeground: #fff; --vscode-button-secondaryBackground: #3a3d41;
+        --vscode-button-secondaryHoverBackground: #45494e; --vscode-button-foreground: #fff; --vscode-button-background: #0e639c; --vscode-button-hoverBackground: #1177bb;
+        --vscode-errorForeground: #f14c4c; --vscode-textLink-foreground: #3794ff; --vscode-badge-background: #4d4d4d; --vscode-badge-foreground: #fff;
+        --vscode-panel-border: #3c3c3c; --vscode-editorWarning-foreground: #cca700; --vscode-inputValidation-warningBackground: #352a05; --vscode-inputValidation-warningBorder: #b89500;
+        --vscode-input-background: #313131; --vscode-input-foreground: #ccc; --vscode-editorWidget-background: #252526; --vscode-descriptionForeground: #9d9d9d;
+        --vscode-testing-iconPassed: #73c991; --vscode-list-hoverBackground: #2a2d2e; --vscode-diffEditor-removedLineBackground: rgba(255, 0, 0, 0.2);
+        --vscode-diffEditor-insertedLineBackground: rgba(155, 185, 85, 0.2); --vscode-gitDecoration-deletedResourceForeground: #c74e39; --vscode-gitDecoration-addedResourceForeground: #81b88b;
+      }
+      html, body { background: #1e1e1e; }
+    </style>
+    <link rel="stylesheet" href="../media/style.css" />
+  </head>
+  <body>
+    <script>
+      const view = new URLSearchParams(location.search).get("view") || "review";
+      document.body.className = view;
+      window.acquireVsCodeApi = () => ({ postMessage: (m) => { if (m.type === "ready") setTimeout(feed, 0); else console.log("post", JSON.stringify(m)); } });
+      const helpers = {
+        id: "p1", path: "src/flask/helpers.py", status: "pending", isNew: false, source: "agent",
+        rationale: "Treat 'off' and 'n' as false, case-insensitively, and list every false value in the docstring.",
+        hunks: [
+          { id: 0, start: 31, decision: "accepted", before: ['def get_debug_flag() -> bool:', '    """Get whether debug mode should be enabled for the app, indicated by the', '    :envvar:`FLASK_DEBUG` environment variable. The default is ``False``.'],
+            removed: [], added: ['', '    The values ``0``, ``false``, ``no``, ``off`` and ``n`` are treated as', '    false, case-insensitively. An unset or empty variable is also false.'], after: ['    """', '    val = os.environ.get("FLASK_DEBUG")'] },
+          { id: 1, start: 33, decision: "pending", before: ['    """', '    val = os.environ.get("FLASK_DEBUG")'],
+            removed: ['    return bool(val and val.lower() not in {"0", "false", "no"})'], added: ['    return bool(val and val.lower() not in {"0", "false", "no", "off", "n"})'], after: ['', '', 'def get_load_dotenv(default: bool = True) -> bool:'] },
+        ],
+      };
+      function feed() {
+        if (view === "review") {
+          window.postMessage({ type: "state", proposals: [helpers], applied: [{ id: "c1", path: "src/flask/cli.py", hunksApplied: 3, hunksTotal: 3, undone: false, created: false }, { id: "c2", path: "docs/config-cmd.rst", hunksApplied: 1, hunksTotal: 1, undone: true, created: true }], message: "" }, "*");
+        } else {
+          window.postMessage({ type: "state", pendingReviews: 1, health: "", approvals: [{ id: 1, name: "run_command", detail: "python -m pytest tests/test_cli.py -q" }],
+            state: { status: "awaiting_approval", agent: "ciao-forge", model: "groq/llama-3.3-70b", tokensIn: 18234, tokensOut: 912, sessionId: "s1", threads: {}, items: [
+              { kind: "user", text: 'Add a new built-in CLI command flask config that prints the loaded application\'s configuration as JSON, masking the values of any key containing SECRET, PASSWORD, TOKEN or KEY as "***".' },
+              { kind: "context", source: "auto", summary: "Context selected automatically: 5991 / 6000 tokens · 18 excerpts from 8 files · 218 files (~294k tokens) in the workspace", omitted: ["src/flask/json/provider.py", "tests/test_basic.py"], rows: [
+                { path: "src/flask/cli.py", ranges: "591-650, 651-698", tokens: 1081, score: "56.27", reason: 'path matches "cli, flask"; defines _load_plugin_commands; terms: built, cli, command' },
+                { path: "tests/test_cli.py", ranges: "413-427, 289-306", tokens: 388, score: "51.96", reason: 'test companion of src/flask/cli.py (same stem "cli")' },
+                { path: "docs/cli.rst", ranges: "2-9, 316-363", tokens: 526, score: "50.64", reason: 'doc companion of src/flask/cli.py (same stem "cli")' } ] },
+              { kind: "assistant", id: "a", thread: "main", text: "First I'll find where the built-in commands are defined, tested and documented." },
+              { kind: "tool", id: "t1", name: "gather_context", args: '{"query":"built-in CLI command routes shell"}', status: "done", result: "…", thread: "main" },
+              { kind: "tool", id: "t2", name: "propose_edit", args: '{"path":"src/flask/cli.py","rationale":"New built-in flask config command"}', status: "done", result: "Applied 3 of 3 hunk(s)", thread: "main" },
+              { kind: "notice", level: "warn", text: 'Primary agent "ciao-forge" failed: the model provider rejected the credentials (401). Switching automatically to the fallback agent "ciao-forge-fallback". No files were changed.' },
+              { kind: "tool", id: "t3", name: "run_command", args: '{"command":"python -m pytest tests/test_cli.py -q"}', status: "awaiting_approval", thread: "main" },
+            ] } }, "*");
+        }
+      }
+      if (view === "review") document.body.innerHTML += '<div id="root"></div>';
+      else document.body.innerHTML += '<div id="top"><span id="status" class="status idle">idle</span><span id="meta"></span><span class="spacer"></span><button id="session" class="link">TrueForge session ↗</button><button id="new" class="link">New</button></div><div id="health"></div><div id="log"></div><div id="approvals"></div><div id="reviewbar"></div><div id="composer"><div id="suggest"></div><textarea id="input" rows="3" placeholder="Ask the agent to change something. Mention @file or @Symbol to pin context."></textarea><div id="buttons"><span id="hint">Enter to send · Shift+Enter for a new line</span><span class="spacer"></span><button id="stop" class="btn danger" disabled>■ Stop</button><button id="send" class="btn primary">Send</button></div></div>';
+      const s = document.createElement("script");
+      s.src = view === "review" ? "../media/review.js" : "../media/panel.js";
+      document.body.appendChild(s);
+    </script>
+  </body>
+</html>

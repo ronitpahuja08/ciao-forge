@@ -1,0 +1,205 @@
+{
+  "name": "ciao-forge",
+  "displayName": "cIAo Forge",
+  "description": "An editor-native coding agent whose agent loop runs on TrueForge. Per-hunk diff review, budgeted context, model fallback.",
+  "version": "0.1.0",
+  "publisher": "ciao",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ciaoForge",
+          "title": "cIAo Forge",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "ciaoForge": [
+        {
+          "type": "webview",
+          "id": "ciaoForge.agent",
+          "name": "Agent"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "ciaoForge.inlineEdit",
+        "title": "cIAo Forge: Inline Edit Selection"
+      },
+      {
+        "command": "ciaoForge.stop",
+        "title": "cIAo Forge: Stop Generation"
+      },
+      {
+        "command": "ciaoForge.undoLastApply",
+        "title": "cIAo Forge: Undo Last Applied Change"
+      },
+      {
+        "command": "ciaoForge.reviewProposals",
+        "title": "cIAo Forge: Review Proposed Changes"
+      },
+      {
+        "command": "ciaoForge.acceptHunk",
+        "title": "cIAo Forge: Accept Hunk"
+      },
+      {
+        "command": "ciaoForge.rejectHunk",
+        "title": "cIAo Forge: Reject Hunk"
+      },
+      {
+        "command": "ciaoForge.acceptAll",
+        "title": "cIAo Forge: Accept All Hunks in File"
+      },
+      {
+        "command": "ciaoForge.rejectAll",
+        "title": "cIAo Forge: Reject All Hunks in File"
+      },
+      {
+        "command": "ciaoForge.showMcpInfo",
+        "title": "cIAo Forge: Show MCP Server Info"
+      },
+      {
+        "command": "ciaoForge.openSession",
+        "title": "cIAo Forge: Open TrueForge Session"
+      },
+      {
+        "command": "ciaoForge.setup",
+        "title": "cIAo Forge: Set Up TrueForge Agents"
+      },
+      {
+        "command": "ciaoForge.reconnect",
+        "title": "cIAo Forge: Reconnect to TrueForge"
+      },
+      {
+        "command": "ciaoForge.newChat",
+        "title": "cIAo Forge: New Conversation"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "ciaoForge.inlineEdit",
+        "key": "ctrl+shift+i",
+        "mac": "cmd+shift+i",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "ciaoForge.stop",
+        "key": "ctrl+shift+escape",
+        "mac": "cmd+shift+escape",
+        "when": "ciaoForge.running"
+      },
+      {
+        "command": "ciaoForge.undoLastApply",
+        "key": "ctrl+alt+z",
+        "mac": "cmd+alt+z"
+      }
+    ],
+    "configuration": {
+      "title": "cIAo Forge",
+      "properties": {
+        "ciaoForge.trueforgeUrl": {
+          "type": "string",
+          "default": "http://localhost:8790",
+          "description": "Base URL of the local TrueForge server."
+        },
+        "ciaoForge.agent": {
+          "type": "string",
+          "default": "ciao-forge",
+          "description": "Name of the primary TrueForge agent."
+        },
+        "ciaoForge.fallbackAgent": {
+          "type": "string",
+          "default": "ciao-forge-fallback",
+          "description": "Name of the fallback TrueForge agent (a second configured model)."
+        },
+        "ciaoForge.tokenBudget": {
+          "type": "number",
+          "default": 6000,
+          "description": "Token budget for automatically retrieved context (tokens ~ chars/4)."
+        },
+        "ciaoForge.mcpPort": {
+          "type": "number",
+          "default": 8791,
+          "description": "Loopback port for the editor MCP tool server."
+        },
+        "ciaoForge.maxRetries": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "maximum": 5,
+          "description": "Retries with exponential backoff on the current model before switching to the fallback agent."
+        },
+        "ciaoForge.stallTimeoutSeconds": {
+          "type": "number",
+          "default": 60,
+          "description": "If TrueForge sends nothing for this long while a model call is pending, the call is treated as unreachable."
+        },
+        "ciaoForge.commandPath": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Directories prepended to PATH for run_command (for example your virtualenv's bin or Scripts directory). A .venv in the workspace and the selected Python interpreter are picked up automatically."
+        }
+      }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "ciaoForge.inlineEdit",
+          "group": "1_modification",
+          "when": "editorHasSelection"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc --noEmit",
+    "build": "node esbuild.js",
+    "test": "vitest run",
+    "check:eligibility": "node scripts/check-eligibility.mjs",
+    "package": "vsce package --no-dependencies --allow-missing-repository --skip-license",
+    "e2e": "node dist/e2e.js",
+    "e2e:vscode": "node scripts/e2e-vscode.mjs",
+    "setup": "node dist/setup-trueforge.js",
+    "vscode:prepublish": "npm run build",
+    "rehearse": "node dist/rehearse.js",
+    "context": "node dist/context-probe.js",
+    "models": "node dist/apply-models.js",
+    "check": "npm run compile && npm test && npm run check:eligibility",
+    "writeup": "node scripts/render-writeup.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@truefoundry/trueforge-sdk": "0.185.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "1.95.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.25.0",
+    "marked": "^15.0.12",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ishaands12/ciao-forge"
+  }
+}

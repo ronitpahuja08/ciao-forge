@@ -1,0 +1,52 @@
+{
+  "name": "ciao-forge-inline",
+  "description": "cIAo Forge inline-edit agent (primary model). Deliberately minimal: one edit tool, loaded up front, so a single selection edit is fast and works with small models.",
+  "manifest": {
+    "model": {
+      "name": "REPLACE_WITH_PRIMARY_MODEL"
+    },
+    "instructions": "@file:agent/instructions-inline.md",
+    "mcpServers": [
+      {
+        "name": "ciao-editor",
+        "enableTools": [
+          "propose_edit",
+          "read_file"
+        ],
+        "preload": true,
+        "requireApprovalForTools": [
+          "propose_edit"
+        ]
+      }
+    ],
+    "config": {
+      "iterationLimit": 6,
+      "dynamicSubAgents": {
+        "enabled": false
+      },
+      "contextManagement": {
+        "compaction": {
+          "enabled": true
+        },
+        "largeToolResponse": {
+          "enabled": false
+        }
+      },
+      "sandbox": {
+        "enabled": false
+      },
+      "generativeUi": {
+        "enabled": false
+      },
+      "askUserQuestions": {
+        "enabled": false
+      },
+      "webSearch": {
+        "enabled": false
+      },
+      "memory": {
+        "enabled": false
+      }
+    }
+  }
+}

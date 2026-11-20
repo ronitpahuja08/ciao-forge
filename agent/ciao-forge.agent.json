@@ -1,0 +1,30 @@
+{
+  "name": "ciao-forge",
+  "description": "cIAo Forge coding agent (primary model). Works only through the editor's MCP tools; every edit is reviewed hunk by hunk before it is written.",
+  "manifest": {
+    "model": { "name": "REPLACE_WITH_PRIMARY_MODEL" },
+    "instructions": "@file:agent/instructions.md",
+    "mcpServers": [
+      {
+        "name": "ciao-editor",
+        "enableTools": ["@all"],
+        "preload": false,
+        "preloadTools": ["gather_context", "read_file", "search_workspace", "propose_edit", "run_command"],
+        "requireApprovalForTools": ["propose_edit", "run_command"]
+      }
+    ],
+    "config": {
+      "iterationLimit": 40,
+      "dynamicSubAgents": { "enabled": true },
+      "contextManagement": {
+        "compaction": { "enabled": true, "trigger": { "type": "input_tokens", "value": 48000 } },
+        "largeToolResponse": { "enabled": false }
+      },
+      "sandbox": { "enabled": false },
+      "generativeUi": { "enabled": false },
+      "askUserQuestions": { "enabled": false },
+      "webSearch": { "enabled": false },
+      "memory": { "enabled": false }
+    }
+  }
+}

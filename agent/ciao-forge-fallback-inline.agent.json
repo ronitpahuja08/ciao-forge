@@ -1,0 +1,52 @@
+{
+  "name": "ciao-forge-fallback-inline",
+  "description": "cIAo Forge inline-edit agent (fallback model, used automatically when the primary model fails).",
+  "manifest": {
+    "model": {
+      "name": "REPLACE_WITH_FALLBACK_MODEL"
+    },
+    "instructions": "@file:agent/instructions-inline.md",
+    "mcpServers": [
+      {
+        "name": "ciao-editor",
+        "enableTools": [
+          "propose_edit",
+          "read_file"
+        ],
+        "preload": true,
+        "requireApprovalForTools": [
+          "propose_edit"
+        ]
+      }
+    ],
+    "config": {
+      "iterationLimit": 6,
+      "dynamicSubAgents": {
+        "enabled": false
+      },
+      "contextManagement": {
+        "compaction": {
+          "enabled": true
+        },
+        "largeToolResponse": {
+          "enabled": false
+        }
+      },
+      "sandbox": {
+        "enabled": false
+      },
+      "generativeUi": {
+        "enabled": false
+      },
+      "askUserQuestions": {
+        "enabled": false
+      },
+      "webSearch": {
+        "enabled": false
+      },
+      "memory": {
+        "enabled": false
+      }
+    }
+  }
+}
