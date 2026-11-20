@@ -12,7 +12,7 @@ TrueFoundry Forge-a-thon, Round 1 · Team ID: **[TEAM ID]** · Repository: **[PU
 
 ## 2. Starting point
 
-From scratch. There is no upstream fork and no fork commit; the git history starts at our first commit. Runtime dependencies are `@truefoundry/trueforge-sdk`, `@modelcontextprotocol/sdk` and `zod`. One idea is carried over from our own earlier project, cIAo: an agent should know why code is the way it is, which became the `explain_history` tool. No code from that project is included.
+From scratch. There is no upstream fork and no fork commit. This repository is an export of the extension's directory from our team's private repository, which also holds our earlier cIAo project; the export was squashed into a single commit for submission, so the history here is one commit by design. Runtime dependencies are `@truefoundry/trueforge-sdk`, `@modelcontextprotocol/sdk` and `zod`. One idea is carried over from our own earlier project, cIAo: an agent should know why code is the way it is, which became the `explain_history` tool. No code from that project is included.
 
 ## 3. Architecture on TrueForge
 
