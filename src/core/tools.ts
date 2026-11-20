@@ -1,6 +1,30 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { execFileSync } from "node:child_process";
 import { checkCommand, GuardError, resolveInside } from "./guards";
+
+const PY_CHECK = "import ast,sys\ntry:\n ast.parse(sys.stdin.read())\nexcept SyntaxError as e:\n print(f'{e.lineno}\\t{e.msg}'); sys.exit(3)\n";
+
+/**
+ * Python syntax guard: returns null if `text` parses (or no Python is available),
+ * otherwise "line<TAB>message". Used so an edit that would leave a .py file
+ * unparseable (e.g. a mis-indented line) is rejected before review, with the
+ * exact line reported back to the model, instead of breaking the workspace.
+ */
+function pythonSyntaxError(text: string): string | null {
+  for (const exe of ["python3", "python"]) {
+    try {
+      execFileSync(exe, ["-c", PY_CHECK], { input: text, timeout: 8000, stdio: ["pipe", "pipe", "ignore"] });
+      return null;
+    } catch (e) {
+      const err = e as { status?: number; stdout?: Buffer; code?: string };
+      if (err.status === 3) return String(err.stdout ?? "").trim() || "?\tsyntax error";
+      if (err.code === "ENOENT") continue;
+      return null; // checker itself failed: do not block the edit
+    }
+  }
+  return null;
+}
 import { applySearchReplaceDetailed, EditError, type SearchReplace } from "./hunks";
 import { editKey, type FileIO, type Proposal, type ProposalStore } from "./store";
 import { isTextPath, listWorkspaceFiles, planContext, renderPlan, type ContextPlan, type WorkspaceIndex } from "./context";
@@ -71,6 +95,22 @@ export async function prepareProposal(host: ToolHost, args: ProposeArgs, source:
       return { error: "Provide either edits (a list of {old_text, new_text}) or new_content." };
     }
     if (original !== null && proposed === original) return { noChange: true };
+    if (rel.endsWith(".py") && (original === null || pythonSyntaxError(original) === null)) {
+      const bad = pythonSyntaxError(proposed);
+      if (bad) {
+        const [ln, msg] = bad.split("\t");
+        const n = Number(ln);
+        const lines = proposed.split(/\r?\n/);
+        const ctx = Number.isFinite(n) && n > 0
+          ? lines.slice(Math.max(0, n - 4), n + 2).map((l, i) => `${String(Math.max(1, n - 3) + i).padStart(5)}  ${l}`).join("\n")
+          : "";
+        return {
+          error: `edit rejected: the result would not be valid Python (${msg} at line ${ln} of ${rel}). Nothing was changed. ` +
+            `Check the indentation of new_text against the surrounding code (top-level defs start at column 0, decorators sit directly above their def) and propose the edit again.` +
+            (ctx ? `\nThe proposed file around line ${ln} would be:\n${ctx}` : ""),
+        };
+      }
+    }
     const rationale = [args.rationale ?? "", notes.length ? `Note: ${notes.join("; ")}.` : ""].filter(Boolean).join(" ");
     const proposal = host.store.create({ key, turnId: host.currentTurnId(), path: rel, abs, original, proposed, rationale, source });
     return { proposal };
