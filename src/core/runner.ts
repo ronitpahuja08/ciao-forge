@@ -36,6 +36,13 @@ export interface RunOptions {
   contextBudget?: number;
   /** Retrieval query when it should differ from the displayed text (inline edits use the selected identifiers). */
   contextQuery?: string;
+  /**
+   * Run in a session of its own without touching the panel's conversation or transcript
+   * (inline edits). Unlike `fresh`, the agent-mode sessions are kept for the next panel message.
+   */
+  isolated?: boolean;
+  /** The only workspace-relative path this run may change (inline edits). */
+  editScope?: string;
   /** Files the message already contains; they are not retrieved again. */
   contextExclude?: string[];
   mode: "agent" | "inline";
@@ -71,6 +78,9 @@ export class TurnRunner {
   private activeSession: string | undefined;
   private lastEventAt = 0;
   private approvalsInFlight = 0;
+  private scope: string | undefined;
+  /** Things that changed on disk outside the agent's view; told to the agent at the start of its next turn. */
+  private pendingNotes: string[] = [];
 
   constructor(
     private readonly cfg: () => RunnerConfig,
@@ -88,6 +98,13 @@ export class TurnRunner {
   }
   isCancelled(): boolean {
     return this.cancelled;
+  }
+  editScope(): string | undefined {
+    return this.scope;
+  }
+  /** Record a change the agent did not see (for example the user undid one of its edits). */
+  noteForAgent(text: string): void {
+    if (this.sessions.size) this.pendingNotes.push(text);
   }
   isBusy(): boolean {
     return this.busy;
@@ -125,6 +142,7 @@ export class TurnRunner {
   newChat(): void {
     if (this.busy) return;
     this.sessions.clear();
+    this.pendingNotes = [];
     this.activeSession = undefined;
     this.dispatch({ type: "local.reset" });
   }
@@ -150,6 +168,12 @@ export class TurnRunner {
     if (rb.discarded) parts.push(`Discarded ${rb.discarded} unreviewed proposal(s).`);
     if (rb.skipped.length) parts.push(`Left alone because they were edited afterwards: ${rb.skipped.join(", ")}.`);
     if (!rb.reverted.length && !rb.skipped.length) parts.push("No files were changed.");
+    if (rb.reverted.length) {
+      // The session's history still says those edits were applied. Continuing it would mislead the agent.
+      this.sessions.clear();
+      this.pendingNotes = [];
+      parts.push("Your next message starts a new TrueForge session.");
+    }
     this.notice("warn", parts.join(" "));
     if (sid) {
       try {
@@ -167,14 +191,21 @@ export class TurnRunner {
     this.localTurnId = `turn-${Date.now()}-${++localSeq}`;
     const turn = this.localTurnId;
     const cfg = this.cfg();
+    this.scope = opts.editScope;
+    const panelSessions = opts.isolated ? new Map(this.sessions) : undefined;
     if (opts.fresh) {
       this.sessions.clear();
+      this.pendingNotes = [];
       this.dispatch({ type: "local.reset" });
     }
     this.dispatch({ type: "local.user", text: opts.display });
     this.dispatch({ type: "local.status", status: "running" });
 
     let message = opts.message ?? opts.display;
+    if (!opts.isolated && this.pendingNotes.length) {
+      message = `<workspace_changes>\n${this.pendingNotes.join("\n")}\n</workspace_changes>\n\n${message}`;
+      this.pendingNotes = [];
+    }
     const budget = opts.contextBudget ?? cfg.tokenBudget;
     if (budget > 0) {
       try {
@@ -197,7 +228,7 @@ export class TurnRunner {
     try {
       for (;;) {
         const agent = agents[agentIdx];
-        const result = await this.attempt(agent, message, !continueSession && (agentIdx > 0 || opts.fresh === true));
+        const result = await this.attempt(agent, message, !continueSession && (agentIdx > 0 || opts.fresh === true || opts.isolated === true));
         continueSession = false;
         if (this.cancelled) {
           outcome = { status: "cancelled", agentUsed: agent, usedFallback: agentIdx > 0, appliedPaths: [], sessionId: this.activeSession };
@@ -248,18 +279,25 @@ export class TurnRunner {
           this.notice("warn", `Primary agent "${agent}" failed: ${f.reason}. Switching automatically to the fallback agent "${agents[agentIdx]}" (second configured model). No files were changed.`);
           continue;
         }
-        // Give up: make sure nothing half-done is left behind, then say so plainly.
-        const rb = await this.store.rollbackTurn(turn, this.io);
+        // Give up. Discard anything still waiting for review, but keep what the user already
+        // reviewed and accepted: throwing that away is worse than an unfinished task, and the
+        // TrueForge session's history stays true to what is on disk.
+        const kept = [...new Set(this.store.turnChanges(turn).map((c) => c.path))];
+        this.store.discardPending(turn);
         this.dispatch({ type: "local.status", status: "error" });
-        const tail = rb.reverted.length ? ` Rolled back ${rb.reverted.join(", ")}.` : " No files were changed.";
+        const tail = kept.length ? ` The changes you had already accepted were kept (${kept.join(", ")}); undo them with "cIAo Forge: Undo Last Applied Change" (Ctrl+Alt+Z) if you do not want a partial result.` : " No files were changed.";
         const text = f.kind === "harness_down" ? `${f.reason}${tail}` : `The request could not be completed: ${f.reason}.${tail}`;
         this.notice("error", text);
-        outcome = { status: "error", agentUsed: agent, usedFallback: agentIdx > 0, appliedPaths: [], error: text, sessionId: this.activeSession };
+        outcome = { status: "error", agentUsed: agent, usedFallback: agentIdx > 0, appliedPaths: kept, error: text, sessionId: this.activeSession };
         break;
       }
     } finally {
       this.busy = false;
       this.abort = undefined;
+      this.scope = undefined;
+      // An inline edit must not replace the panel's conversation (it can land on the main agent's
+      // name when the "-inline" agent was never created).
+      if (panelSessions) this.sessions = panelSessions;
     }
     return outcome;
   }
@@ -342,7 +380,7 @@ export class TurnRunner {
         return { ok: false, failure: classifyFailure({ harnessUnreachable: true }) };
       }
       if (err.statusCode === 404 || (err.statusCode === 422 && /agent/i.test(bodyMsg ?? ""))) {
-        return { ok: false, failure: { kind: "no_agent", reason: `TrueForge has no agent named "${agent}" (${bodyMsg ?? "not found"}). Run \`node scripts/setup-trueforge.mjs\` to create it`, retryable: false, fallbackable: true } };
+        return { ok: false, failure: { kind: "no_agent", reason: `TrueForge has no agent named "${agent}" (${bodyMsg ?? "not found"}). Run "cIAo Forge: Set Up TrueForge Agents" (or \`npm run setup\`) to create it`, retryable: false, fallbackable: true } };
       }
       return { ok: false, failure: classifyFailure({ message: bodyMsg ?? err.message ?? String(e), status: err.statusCode }) };
     } finally {

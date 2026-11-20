@@ -21,6 +21,8 @@ export class ReviewController implements vscode.CodeLensProvider, vscode.TextDoc
   private readonly removedDeco: vscode.TextEditorDecorationType;
   private readonly anchorDeco: vscode.TextEditorDecorationType;
   private lastMessage = "";
+  /** Called with the workspace-relative path after an applied change was undone. */
+  onUndone: ((path: string) => void) | undefined;
 
   constructor(
     private readonly ctx: vscode.ExtensionContext,
@@ -170,6 +172,7 @@ export class ReviewController implements vscode.CodeLensProvider, vscode.TextDoc
   async undo(changeId?: string): Promise<boolean> {
     const r = changeId ? await this.store.undo(changeId, this.io) : await this.store.undoLast(this.io);
     this.lastMessage = r.message;
+    if (r.ok && r.change) this.onUndone?.(r.change.path);
     if (r.ok) void vscode.window.setStatusBarMessage(`cIAo Forge: ${r.message}`, 5000);
     else void vscode.window.showWarningMessage(`cIAo Forge: ${r.message}`);
     this.refresh();

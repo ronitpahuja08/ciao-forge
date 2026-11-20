@@ -23,12 +23,15 @@ export function sanitize(message: string): string {
     .slice(0, 240);
 }
 
+/** How to start TrueForge so it may call the editor's tool server on loopback. Shown whenever TrueForge is unreachable. */
+export const START_HINT = `OUTBOUND_URL_ALLOWED_HOSTS='["127.0.0.1","localhost"]' npx @truefoundry/trueforge@0.185.1 (PowerShell: set $env:OUTBOUND_URL_ALLOWED_HOSTS first; see the README)`;
+
 export function classifyFailure(input: { message?: string; status?: number; harnessUnreachable?: boolean }): Failure {
   const msg = sanitize(input.message ?? "");
   const m = msg.toLowerCase();
   const status = input.status;
   if (input.harnessUnreachable) {
-    return { kind: "harness_down", reason: "TrueForge is not reachable. Start it with `npx @truefoundry/trueforge@latest` and check the cIAo Forge URL setting.", retryable: false, fallbackable: false };
+    return { kind: "harness_down", reason: `TrueForge is not reachable. Start it with: ${START_HINT}, and check the cIAo Forge URL setting.`, retryable: false, fallbackable: false };
   }
   if (status === 401 || status === 403 || /invalid[ _]api[ _]key|incorrect api key|unauthori[sz]ed|authentication|permission denied|invalid x-api-key|\b401\b|\b403\b/.test(m)) {
     return { kind: "auth", reason: `the model provider rejected the credentials (${msg || "401"})`, retryable: false, fallbackable: true };

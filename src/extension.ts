@@ -1,7 +1,8 @@
 import * as path from "node:path";
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
-import { buildIndex, type WorkspaceIndex } from "./core/context";
+import { buildIndex, inSkippedDir, type WorkspaceIndex } from "./core/context";
+import { START_HINT } from "./core/resilience";
 import { buildInlineMessage, inlineContextQuery } from "./core/inline";
 import { MCP_SERVER_NAME, startMcpServer, type RunningMcp } from "./core/mcpServer";
 import { execCommand, execFileCommand, venvBinDirs } from "./core/nodeHost";
@@ -41,8 +42,16 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<ForgeApi> 
     return index;
   };
   const invalidate = () => (index = undefined);
+  // Files that are never indexed (pytest and Python caches, virtualenvs, build output) must not
+  // force a rebuild: a test run creates hundreds of them.
+  const invalidateFor = (uri: vscode.Uri) => {
+    const root = workspaceRoot();
+    if (!root) return;
+    const rel = path.relative(root, uri.fsPath).split(path.sep).join("/");
+    if (!rel.startsWith("..") && !inSkippedDir(rel)) invalidate();
+  };
   const watcher = vscode.workspace.createFileSystemWatcher("**/*");
-  ctx.subscriptions.push(watcher, watcher.onDidCreate(invalidate), watcher.onDidDelete(invalidate), vscode.workspace.onDidSaveTextDocument(invalidate), vscode.workspace.onDidChangeWorkspaceFolders(invalidate));
+  ctx.subscriptions.push(watcher, watcher.onDidCreate(invalidateFor), watcher.onDidDelete(invalidateFor), vscode.workspace.onDidSaveTextDocument((d) => invalidateFor(d.uri)), vscode.workspace.onDidChangeWorkspaceFolders(invalidate));
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   status.text = "$(sparkle) cIAo Forge";
@@ -88,6 +97,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<ForgeApi> 
     exec: (command, cwd, timeoutMs) => execCommand(command, cwd, timeoutMs, [...readConfig().commandPath, ...pythonBinDir(), ...venvBinDirs(cwd)]),
     execFile: (file, args, cwd, timeoutMs) => execFileCommand(file, args, cwd, timeoutMs),
     isCancelled: () => runner.isCancelled(),
+    editScope: () => runner.editScope(),
     log,
   };
 
@@ -110,6 +120,8 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<ForgeApi> 
     log,
   );
   ctx.subscriptions.push({ dispose: store.onChange(() => panel.setPendingReviews(store.awaiting().length)) });
+  // The agent's session still believes an undone edit is in place; tell it on its next turn.
+  review.onUndone = (p) => runner.noteForAgent(`The user undid your change to ${p}; that file is back to its content from before your edit. Read it again before editing it.`);
 
   async function stop(): Promise<void> {
     panel.denyAll();
@@ -181,7 +193,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<ForgeApi> 
     } catch (e) {
       const url = readConfig().trueforgeUrl;
       log(`TrueForge not reachable at ${url}: ${(e as Error).message}`);
-      panel.setHealth(`TrueForge is not reachable at ${url}. Start it with: npx @truefoundry/trueforge@latest, then run "cIAo Forge: Reconnect to TrueForge".`);
+      panel.setHealth(`TrueForge is not reachable at ${url}. Start it with: ${START_HINT}, then run "cIAo Forge: Reconnect to TrueForge".`);
       return false;
     }
   }
@@ -220,7 +232,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<ForgeApi> 
       await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "cIAo Forge: preparing the edit…", cancellable: true }, async (_p, tokenCancel) => {
         tokenCancel.onCancellationRequested(() => void stop());
         // The notification closes as soon as the diff is ready for review.
-        const run = runner.run({ display: `Inline edit ${rel}:${startLine}-${endLine} — ${instruction.trim()}`, message, mode: "inline", fresh: true, contextBudget: Math.min(1200, cfg.tokenBudget), contextQuery: inlineContextQuery(req), contextExclude: [rel] });
+        const run = runner.run({ display: `Inline edit ${rel}:${startLine}-${endLine} — ${instruction.trim()}`, message, mode: "inline", isolated: true, editScope: rel, contextBudget: Math.min(1200, cfg.tokenBudget), contextQuery: inlineContextQuery(req), contextExclude: [rel] });
         const firstProposal = new Promise<void>((resolve) => {
           const off = store.onChange(() => {
             if (store.awaiting().length) {

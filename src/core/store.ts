@@ -251,6 +251,22 @@ export class ProposalStore {
     return this.revert(c, io);
   }
 
+  /** Drop every proposal of the turn that is still waiting for review. Applied changes stay. */
+  discardPending(turnId: string): number {
+    let discarded = 0;
+    for (const p of this.proposals.values()) {
+      if (p.turnId === turnId && p.status === "pending") {
+        p.status = "discarded";
+        discarded++;
+        const w = this.waiters.get(p.id) ?? [];
+        this.waiters.delete(p.id);
+        for (const fn of w) fn();
+      }
+    }
+    if (discarded) this.emit();
+    return discarded;
+  }
+
   /**
    * Cancellation: discard every undecided proposal of the turn and revert every
    * change the turn already applied, newest first, so no half-finished

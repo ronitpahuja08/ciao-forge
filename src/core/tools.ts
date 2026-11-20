@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { checkCommand, GuardError, resolveInside } from "./guards";
+import { applySearchReplaceDetailed, EditError, type SearchReplace } from "./hunks";
 
 const PY_CHECK = "import ast,sys\ntry:\n ast.parse(sys.stdin.read())\nexcept SyntaxError as e:\n print(f'{e.lineno}\\t{e.msg}'); sys.exit(3)\n";
 
@@ -12,20 +13,20 @@ const PY_CHECK = "import ast,sys\ntry:\n ast.parse(sys.stdin.read())\nexcept Syn
  * exact line reported back to the model, instead of breaking the workspace.
  */
 function pythonSyntaxError(text: string): string | null {
-  for (const exe of ["python3", "python"]) {
+  // "py" is the Windows launcher. On Windows "python3" is often the Microsoft Store
+  // stub, which exits 9009 without running anything, so any failure other than our
+  // own exit code 3 means "this interpreter is unusable, try the next one".
+  for (const exe of ["python3", "python", "py"]) {
     try {
-      execFileSync(exe, ["-c", PY_CHECK], { input: text, timeout: 8000, stdio: ["pipe", "pipe", "ignore"] });
+      execFileSync(exe, ["-c", PY_CHECK], { input: text, timeout: 8000, stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
       return null;
     } catch (e) {
-      const err = e as { status?: number; stdout?: Buffer; code?: string };
+      const err = e as { status?: number; stdout?: Buffer };
       if (err.status === 3) return String(err.stdout ?? "").trim() || "?\tsyntax error";
-      if (err.code === "ENOENT") continue;
-      return null; // checker itself failed: do not block the edit
     }
   }
-  return null;
+  return null; // no working Python: do not block the edit
 }
-import { applySearchReplaceDetailed, EditError, type SearchReplace } from "./hunks";
 import { editKey, type FileIO, type Proposal, type ProposalStore } from "./store";
 import { isTextPath, listWorkspaceFiles, planContext, renderPlan, type ContextPlan, type WorkspaceIndex } from "./context";
 
@@ -45,6 +46,8 @@ export interface ToolHost {
   execFile(file: string, args: string[], cwd: string, timeoutMs: number): Promise<{ code: number | null; output: string; timedOut: boolean }>;
   /** True once the active turn has been cancelled; tools must then refuse to change anything. */
   isCancelled(): boolean;
+  /** When set (inline edits), the only workspace-relative path the current run may change. */
+  editScope?(): string | undefined;
   log?(msg: string): void;
 }
 
@@ -77,6 +80,8 @@ export interface ProposeArgs {
 export async function prepareProposal(host: ToolHost, args: ProposeArgs, source: "agent" | "inline" = "agent"): Promise<{ proposal?: Proposal; noChange?: boolean; error?: string }> {
   try {
     const { abs, rel } = resolveInside(host.root, args.path);
+    const scope = host.editScope?.();
+    if (scope && rel !== scope) return { error: `This is an inline edit of ${scope}; only that file may be changed. Nothing was proposed for ${rel}.` };
     const key = editKey(args);
     const existing = host.store.findByKey(key);
     if (existing && existing.status === "pending") return { proposal: existing };

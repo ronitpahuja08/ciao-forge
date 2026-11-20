@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import { checkCommand, GuardError, isSensitivePath, resolveInside } from "../src/core/guards";
 import { execSync } from "node:child_process";
 import { prepareProposal, tools, type ToolHost } from "../src/core/tools";
-import { listWorkspaceFiles } from "../src/core/context";
+import { inSkippedDir, listWorkspaceFiles } from "../src/core/context";
+import { startMcpServer, unwrapToolArguments } from "../src/core/mcpServer";
 import { applyHunks, applySearchReplace, applySearchReplaceDetailed, computeHunks, EditError } from "../src/core/hunks";
 import { editKey, ProposalStore, sha } from "../src/core/store";
 import { commandEnv, execCommand, execFileCommand, nodeIO } from "../src/core/nodeHost";
@@ -393,7 +394,7 @@ describe("inline edit message", () => {
 
 const NL = String.fromCharCode(10);
 const hasPython = (() => {
-  for (const exe of ["python3", "python"]) {
+  for (const exe of ["python3", "python", "py"]) {
     try { execSync(`${exe} --version`, { stdio: "ignore" }); return true; } catch { /* try the next one */ }
   }
   return false;
@@ -428,5 +429,75 @@ describe.skipIf(!hasPython)("python syntax guard", () => {
     const r = await prepareProposal(host(root), { path: "notes.txt", edits: [{ old_text: "a", new_text: "def f(:" }] });
     expect(r.error).toBeUndefined();
     expect(r.proposal).toBeDefined();
+  });
+});
+
+describe("review fixes", () => {
+  const host = (root: string, extra: Partial<ToolHost> = {}) =>
+    ({ root, io: nodeIO, store: new ProposalStore(), currentTurnId: () => "t", getIndex: () => buildIndex(root), isCancelled: () => false, tokenBudget: () => 1000, ...extra }) as unknown as ToolHost;
+
+  it("unwraps call_tool-style arguments and leaves ordinary calls alone", () => {
+    const call = (args: unknown) => ({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "read_file", arguments: args } });
+    const plain = call({ path: "a.py", start_line: 2 });
+    expect(unwrapToolArguments(plain)).toBe(plain);
+    const wrapped = unwrapToolArguments(call({ mcp_server: "ciao-editor", tool_name: "read_file", input: { path: "a.py" } })) as ReturnType<typeof call>;
+    expect(wrapped.params.arguments).toEqual({ path: "a.py" });
+    const batch = unwrapToolArguments([call({ input: { path: "b.py" } }), { jsonrpc: "2.0", id: 2, method: "tools/list" }]) as Array<ReturnType<typeof call>>;
+    expect(batch[0].params.arguments).toEqual({ path: "b.py" });
+    expect(batch[1].method).toBe("tools/list");
+  });
+
+  it("the MCP server advertises strict schemas and still answers a wrapped call", async () => {
+    const root = tmp({ "a.txt": "hello" + NL });
+    const mcp = await startMcpServer(host(root), { port: 0, token: "tok" });
+    const rpc = async (body: unknown) => {
+      const r = await fetch(mcp.url, { method: "POST", headers: { authorization: "Bearer tok", "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify(body) });
+      return (await r.json()) as { result?: { tools?: Array<{ name: string; inputSchema: { required?: string[]; properties: Record<string, unknown> } }>; content?: Array<{ text: string }>; isError?: boolean } };
+    };
+    try {
+      const list = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+      const read = list.result!.tools!.find((x) => x.name === "read_file")!;
+      expect(read.inputSchema.required).toEqual(["path"]);
+      expect(Object.keys(read.inputSchema.properties).sort()).toEqual(["end_line", "path", "start_line"]);
+      const wrapped = await rpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "read_file", arguments: { mcp_server: "ciao-editor", tool_name: "read_file", input: { path: "a.txt" } } } });
+      expect(wrapped.result!.isError).toBeFalsy();
+      expect(wrapped.result!.content![0].text).toContain("hello");
+      const direct = await rpc({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "read_file", arguments: { path: "a.txt" } } });
+      expect(direct.result!.content![0].text).toContain("hello");
+    } finally {
+      await mcp.close();
+    }
+  });
+
+  it("an inline edit may only change the file it was started on", async () => {
+    const root = tmp({ "a.txt": "one" + NL, "b.txt": "two" + NL });
+    const h = host(root, { editScope: () => "a.txt" });
+    const other = await prepareProposal(h, { path: "b.txt", edits: [{ old_text: "two", new_text: "2" }] });
+    expect(other.proposal).toBeUndefined();
+    expect(other.error).toMatch(/only that file may be changed/);
+    const same = await prepareProposal(h, { path: "a.txt", edits: [{ old_text: "one", new_text: "1" }] });
+    expect(same.proposal?.path).toBe("a.txt");
+  });
+
+  it("discardPending drops proposals awaiting review and keeps applied changes", async () => {
+    const root = tmp({ "a.txt": "one" + NL, "b.txt": "two" + NL });
+    const store = new ProposalStore();
+    const mk = (rel: string, from: string, to: string) => store.create({ key: rel, turnId: "T", path: rel, abs: path.join(root, rel), original: from + NL, proposed: to + NL });
+    const a = mk("a.txt", "one", "1");
+    const b = mk("b.txt", "two", "2");
+    store.decideAll(a.id, "accepted");
+    expect((await store.apply(a.id, nodeIO)).ok).toBe(true);
+    expect(store.discardPending("T")).toBe(1);
+    expect(b.status).toBe("discarded");
+    expect(fs.readFileSync(path.join(root, "a.txt"), "utf8")).toBe("1" + NL);
+    expect(fs.readFileSync(path.join(root, "b.txt"), "utf8")).toBe("two" + NL);
+    expect(store.turnChanges("T").map((c) => c.path)).toEqual(["a.txt"]);
+  });
+
+  it("cache and virtualenv paths do not count as index changes", () => {
+    expect(inSkippedDir("tests/__pycache__/test_cli.cpython-312.pyc")).toBe(true);
+    expect(inSkippedDir(".pytest_cache/v/cache/lastfailed")).toBe(true);
+    expect(inSkippedDir("src/flask.egg-info/PKG-INFO")).toBe(true);
+    expect(inSkippedDir("src/flask/cli.py")).toBe(false);
   });
 });

@@ -159,6 +159,11 @@ export function chunkFile(rel: string, text: string): Array<Omit<Chunk, "terms" 
   return out;
 }
 
+/** True when a workspace-relative path lies in a directory that is never indexed (caches, virtualenvs, build output). */
+export function inSkippedDir(rel: string): boolean {
+  return rel.split("/").some((seg) => SKIP_DIRS.has(seg) || seg.endsWith(".egg-info"));
+}
+
 export function listWorkspaceFiles(root: string, limit = 5000): string[] {
   const out: string[] = [];
   const walk = (dir: string, rel: string): void => {

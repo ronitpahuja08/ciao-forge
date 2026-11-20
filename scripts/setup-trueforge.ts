@@ -8,6 +8,7 @@
 import * as path from "node:path";
 import { TrueForge } from "@truefoundry/trueforge-sdk";
 import { listModelNames, loadAgentDefs, upsertAgents } from "../src/core/setup";
+import { START_HINT } from "../src/core/resilience";
 
 const arg = (name: string): string | undefined => {
   const i = process.argv.indexOf(`--${name}`);
@@ -21,7 +22,7 @@ async function main(): Promise<void> {
   try {
     models = await listModelNames(client);
   } catch {
-    console.error(`TrueForge is not reachable at ${baseUrl}. Start it first:\n  npx @truefoundry/trueforge@latest`);
+    console.error(`TrueForge is not reachable at ${baseUrl}. Start it first:\n  ${START_HINT}`);
     process.exit(2);
   }
   const primary = arg("primary") ?? process.env.FORGE_PRIMARY_MODEL;
