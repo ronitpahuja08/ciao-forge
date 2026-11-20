@@ -14,7 +14,7 @@ TrueFoundry Forge-a-thon, Round 1 · Team ID: **TM-2EBD4223A67** · Repository: 
 
 ## 2. Starting point
 
-From scratch. There is no upstream fork and no fork commit. This repository is an export of the extension's directory from our team's private repository, which also holds our earlier cIAo project; the export was squashed into a single commit for submission, so the history here is one commit by design. Runtime dependencies are `@truefoundry/trueforge-sdk`, `@modelcontextprotocol/sdk` and `zod`. One idea is carried over from our own earlier project, cIAo: an agent should know why code is the way it is, which became the `explain_history` tool. No code from that project is included.
+From scratch. There is no upstream fork and no fork commit. This repository is a single-commit export of the extension from our team's working repository, so its history is one commit by design. Runtime dependencies are `@truefoundry/trueforge-sdk`, `@modelcontextprotocol/sdk` and `zod`. One idea is carried over from our own earlier project, cIAo: an agent should know why code is the way it is, which became the `explain_history` tool. No code from that project is included.
 
 ## 3. Architecture on TrueForge
 
@@ -29,7 +29,7 @@ The extension is a client of a TrueForge agent and nothing more. It creates a se
 - *Compaction*, with an explicit trigger at 48k input tokens, so a long Task B run on a small-window model summarises old tool output instead of failing.
 - *Dynamic subagents* are enabled for the main agent, for delegating a broad read-only search.
 - *Two agent shapes.* Inline edits use a separate minimal agent (`ciao-forge-inline`: one edit tool, preloaded, no subagents, six iterations). We added it after testing with a 1.5B local model, which the full agent's deferred-tool prompt confused.
-- Sessions, streaming, cancellation (`sessions.cancel`) and the session UI are used as provided. Sandbox, skills and Code Mode are not used (the local sandbox is unavailable on Windows, where we developed).
+- Sessions, streaming, cancellation (`sessions.cancel`) and the session UI are used as provided. Sandbox, skills and Code Mode are not used: none is needed for the fixed tasks, and TrueForge's local sandbox does not run on Windows, where part of the team developed.
 
 ## 4. How context is selected
 
@@ -60,14 +60,14 @@ For Task C we register the same model twice under two provider entries, so the f
 
 | Criterion | Video | Claim |
 | --- | --- | --- |
-| A1 Inline edit | [mm:ss] | Selection + keybinding + instruction gives a diff in the editor with Accept / Reject on each hunk. |
-| A2 Agent mode | [mm:ss] | One request, no files named; the agent finds and edits `cli.py`, `test_cli.py` and `docs/cli.rst`. |
-| A3 Streaming and cancellation | [mm:ss] | Tokens stream live; Stop is immediate and reverts anything the cancelled run applied. |
-| B1 Context assembly | [mm:ss] | 6,000-token budget; the panel table shows the files chosen for Task B and the reason for each. |
-| B2 Diff safety | [mm:ss] | Nothing written before review; per-hunk decisions; an applied change is undone on screen. |
-| B3 Resilience | [mm:ss] | Invalid key on the primary: automatic fallback to the second model, no user action, `git status` clean. |
-| B4 TrueForge integration | [mm:ss] | Tools are MCP; TrueForge approval drives the review; deferred tool loading visible in the session. |
-| C1 Video | n/a | Tasks A, B, C in order, each verified on screen, TrueForge session shown for B. |
+| A1 Inline edit | 0:25–0:45 | Selection + `Ctrl+Shift+I` + instruction; the review tab shows two hunks, each with Accept / Reject (0:35); after accepting, `FLASK_DEBUG=off` prints `False` (0:45). |
+| A2 Agent mode | 0:55–1:35 | One request, no files named; the agent finds and edits `src/flask/cli.py` and `tests/test_cli.py` and its own `pytest` run passes. In this take it did not change `docs/cli.rst` (see limitations). |
+| A3 Streaming and cancellation | 3:05–3:20 | Tokens and tool calls stream live; Stop ends the run at once and rolls back the file it had already changed (`src/flask/cli.py`). |
+| B1 Context assembly | 0:55 | 6,000-token budget; before the turn the panel table lists the chosen files (`cli.py`, `test_cli.py`, `docs/cli.rst`, …) with tokens and the reason for each. |
+| B2 Diff safety | 0:35, 0:49 | Nothing is written before review; hunks are accepted one by one; the applied change is then undone (status bar: "Restored src/flask/helpers.py"). |
+| B3 Resilience | 2:15–3:00 | Primary key set invalid (401); the run switches automatically to a second configured provider (same Mercury 2 model, separate provider entry) with no user action; nothing written before review; `git status` clean. |
+| B4 TrueForge integration | 1:40–2:00, 3:20 | Editor capabilities are MCP tools; the TrueForge session lists every tool call of the Task B run; edits pass through TrueForge approval; the deferred `explain_history` tool is loaded with `get_tool_info` / `call_tool` (panel, 3:20). |
+| C1 Video | n/a | Tasks A, B, C in order in 3:29; A and C verified in the terminal, B by the agent's test run in the panel; TrueForge session shown during B. |
 | C2 Write-up | n/a | This document. |
 
 ## 7. Tools used
@@ -82,4 +82,5 @@ Claude Code (Anthropic) was used heavily to write and test the extension, includ
 - **Approximate matching.** When the model's `old_text` differs only in indentation or quote style we still locate it (whole lines, unique match, flagged to the user). A rejected hunk in the middle of a multi-file change can leave the agent's later edits inconsistent; the agent is told, but we do not re-plan for it.
 - **Cancellation rolls back by content hash.** If the user edits a file the cancelled run had changed, that file is left alone and named in the message rather than reverted.
 - **One workspace folder**, text files under 200 KB, index rebuilt in memory on change (about 0.4 s on Flask).
+- **The recorded Task B is weaker than our best rehearsal.** In the take we submitted, the agent changed the implementation and the test but not `docs/cli.rst`, and Task B's result is shown by the agent's own `pytest` run rather than by `flask config` in the terminal. Rehearsals with the same model and instructions changed all three files in six of seven runs (`test-e2e/results-real-model.txt`).
 - **One real model, and it varies between runs.** The automated suites use a scripted model. With mercury-2, Task B touched all three files in most rehearsals, but one run skipped the docs file until we added a requirements checklist to the agent's instructions. Before we pinned Werkzeug, the model also drifted into unrelated files, trying to fix test failures that were already there at baseline. With another month: a recorded benchmark across several real models, sandboxed command execution through TrueForge's sandbox, Code Mode for bulk search, and a skill carrying per-repository conventions.

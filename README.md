@@ -27,7 +27,7 @@ A coding agent that lives in VS Code and runs its whole agent loop on [TrueForge
 Requirements: Node 20+, VS Code 1.95+, Git. For the Flask tasks: Python 3.10+.
 
 ```bash
-git clone <this repository> ciao-forge && cd ciao-forge
+git clone https://github.com/ronitpahuja08/ciao-forge && cd ciao-forge
 npm install
 npm run build
 ```
@@ -140,7 +140,7 @@ VS Code extension                      TrueForge (local)                 model(s
 
 ```bash
 npm run check          # type-check, 38 unit tests, eligibility guard
-npm run e2e            # 50+ checks against a real local TrueForge, scripted models, no API key
+npm run e2e            # 55 checks (74 with FLASK_DIR) against a real local TrueForge, scripted models, no API key
 FLASK_DIR=/path/to/flask PY_BIN=/path/to/flask-venv/bin npm run e2e    # adds tasks A, B, C on Flask 3.1.3
 npm run e2e:vscode     # 14 checks inside a real VS Code window
 ```
