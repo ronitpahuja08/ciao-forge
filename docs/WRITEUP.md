@@ -1,6 +1,6 @@
 # cIAo Forge: write-up
 
-TrueFoundry Forge-a-thon, Round 1 · Team ID: **TM-2EBD4223A67** · Repository: **https://github.com/ronitpahuja08/ciao-forge** · Video: **[VIDEO URL]**
+TrueFoundry Forge-a-thon, Round 1 · Team ID: **TM-2EBD4223A67** · Repository: **https://github.com/ronitpahuja08/ciao-forge** · Video: **https://youtu.be/o5FtUkLNeg4**
 
 ## 1. Team
 
