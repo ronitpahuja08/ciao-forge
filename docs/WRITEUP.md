@@ -1,14 +1,16 @@
 # cIAo Forge: write-up
 
-TrueFoundry Forge-a-thon, Round 1 · Team ID: **[TEAM ID]** · Repository: **[PUBLIC REPO URL]** · Video: **[VIDEO URL]**
+TrueFoundry Forge-a-thon, Round 1 · Team ID: **TM-2EBD4223A67** · Repository: **https://github.com/ronitpahuja08/ciao-forge** · Video: **[VIDEO URL]**
 
 ## 1. Team
 
 | Member | College or employer | GitHub |
 | --- | --- | --- |
-| [NAME] | [COLLEGE / EMPLOYER] | [@handle] |
-| [NAME] | [COLLEGE / EMPLOYER] | [@handle] |
-| [NAME] | [COLLEGE / EMPLOYER] | [@handle] |
+| Aadhar Gupta | Masters' Union University | [@Aadhar-Gupta-0](https://github.com/Aadhar-Gupta-0) |
+| Ayush Kakkar | Masters' Union University | [@AyushKakkar](https://github.com/AyushKakkar) |
+| Ishaan Bansal | Masters' Union University | [@ishaands12](https://github.com/ishaands12) |
+| Ronit Pahuja | Masters' Union University | [@ronitpahuja08](https://github.com/ronitpahuja08) |
+| Shreshth Behal | Masters' Union University | [@SHRESHTHBEHAL](https://github.com/SHRESHTHBEHAL) |
 
 ## 2. Starting point
 
