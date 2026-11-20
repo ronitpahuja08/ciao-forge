@@ -139,7 +139,7 @@ VS Code extension                      TrueForge (local)                 model(s
 ## Tests
 
 ```bash
-npm run check          # type-check, 38 unit tests, eligibility guard
+npm run check          # type-check, 42 unit tests, eligibility guard
 npm run e2e            # 55 checks (74 with FLASK_DIR) against a real local TrueForge, scripted models, no API key
 FLASK_DIR=/path/to/flask PY_BIN=/path/to/flask-venv/bin npm run e2e    # adds tasks A, B, C on Flask 3.1.3
 npm run e2e:vscode     # 14 checks inside a real VS Code window

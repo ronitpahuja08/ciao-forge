@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { checkCommand, GuardError, isSensitivePath, resolveInside } from "../src/core/guards";
 import { execSync } from "node:child_process";
-import { tools, type ToolHost } from "../src/core/tools";
+import { prepareProposal, tools, type ToolHost } from "../src/core/tools";
 import { listWorkspaceFiles } from "../src/core/context";
 import { applyHunks, applySearchReplace, applySearchReplaceDetailed, computeHunks, EditError } from "../src/core/hunks";
 import { editKey, ProposalStore, sha } from "../src/core/store";
@@ -388,5 +388,45 @@ describe("inline edit message", () => {
     expect(m).toContain('<selection path="src/x.py" lines="30-32">\nline 30\nline 31\nline 32\n</selection>');
     expect(m).toContain('<surrounding path="src/x.py" lines="10-52">');
     expect(m).toContain("Instruction: do it");
+  });
+});
+
+const NL = String.fromCharCode(10);
+const hasPython = (() => {
+  for (const exe of ["python3", "python"]) {
+    try { execSync(`${exe} --version`, { stdio: "ignore" }); return true; } catch { /* try the next one */ }
+  }
+  return false;
+})();
+
+describe.skipIf(!hasPython)("python syntax guard", () => {
+  const host = (root: string) => ({ root, io: nodeIO, store: new ProposalStore(), currentTurnId: () => "t" }) as unknown as ToolHost;
+  const good = ["def f():", "    return 1", ""].join(NL);
+
+  it("rejects an edit that would leave a .py file unparseable and writes nothing", async () => {
+    const root = tmp({ "m.py": good });
+    const r = await prepareProposal(host(root), { path: "m.py", edits: [{ old_text: "    return 1", new_text: ["    return 1", "  x = 2"].join(NL) }] });
+    expect(r.proposal).toBeUndefined();
+    expect(r.error).toMatch(/would not be valid Python/);
+    expect(r.error).toMatch(/line 3 of m\.py/);
+    expect(fs.readFileSync(path.join(root, "m.py"), "utf8")).toBe(good);
+  });
+  it("accepts a valid Python edit", async () => {
+    const root = tmp({ "m.py": good });
+    const r = await prepareProposal(host(root), { path: "m.py", edits: [{ old_text: "    return 1", new_text: "    return 2" }] });
+    expect(r.error).toBeUndefined();
+    expect(r.proposal?.proposed).toContain("return 2");
+  });
+  it("does not block edits to a file that was already unparseable", async () => {
+    const root = tmp({ "broken.py": "def f(:" + NL });
+    const r = await prepareProposal(host(root), { path: "broken.py", edits: [{ old_text: "def f(:", new_text: "def g(:" }] });
+    expect(r.error).toBeUndefined();
+    expect(r.proposal).toBeDefined();
+  });
+  it("does not apply to non-Python files", async () => {
+    const root = tmp({ "notes.txt": "a" + NL });
+    const r = await prepareProposal(host(root), { path: "notes.txt", edits: [{ old_text: "a", new_text: "def f(:" }] });
+    expect(r.error).toBeUndefined();
+    expect(r.proposal).toBeDefined();
   });
 });
