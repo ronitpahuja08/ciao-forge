@@ -1,10 +1,13 @@
 import { TrueForge, TrueForgeError } from "@truefoundry/trueforge-sdk";
 import { planContext, planFiles, renderPlan, type ContextPlan, type WorkspaceIndex } from "./context";
 import { checkCommand } from "./guards";
+import { killRunningCommands } from "./nodeHost";
 import { findTool, initialState, reduce, type LocalEvent, type ViewState } from "./reducer";
 import { classifyFailure, nextStep, type Failure } from "./resilience";
 import type { FileIO, Proposal, ProposalStore } from "./store";
 import { prepareProposal, type ProposeArgs, type ToolHost } from "./tools";
+import { extractTextEdit } from "./inline";
+import { followUpMessage, missingRequirements } from "./requirements";
 
 export interface RunnerConfig {
   trueforgeUrl: string;
@@ -46,6 +49,8 @@ export interface RunOptions {
   /** Files the message already contains; they are not retrieved again. */
   contextExclude?: string[];
   mode: "agent" | "inline";
+  /** Inline edits: the selected file and text, used to recover an edit from a model that answers in text. */
+  inlineSelection?: { path: string; text: string };
 }
 
 export interface RunOutcome {
@@ -160,10 +165,12 @@ export class TurnRunner {
     const turn = this.localTurnId;
     const sid = this.activeSession;
     this.abort?.abort();
+    const killed = killRunningCommands();
     this.dispatch({ type: "local.status", status: "cancelled" });
     // Roll back first so the workspace is consistent even if TrueForge is slow to answer.
     const rb = await this.store.rollbackTurn(turn, this.io);
     const parts: string[] = ["Stopped."];
+    if (killed) parts.push(`Ended ${killed} running command(s).`);
     if (rb.reverted.length) parts.push(`Rolled back ${rb.reverted.length} file(s) changed by this run: ${rb.reverted.join(", ")}.`);
     if (rb.discarded) parts.push(`Discarded ${rb.discarded} unreviewed proposal(s).`);
     if (rb.skipped.length) parts.push(`Left alone because they were edited afterwards: ${rb.skipped.join(", ")}.`);
@@ -223,6 +230,7 @@ export class TurnRunner {
     let agentIdx = 0;
     let attempt = 0;
     let nudged = false;
+    let followedUp = false;
     let continueSession = false;
     let outcome: RunOutcome = { status: "error", usedFallback: false, appliedPaths: [] };
     try {
@@ -243,10 +251,29 @@ export class TurnRunner {
           continueSession = true;
           continue;
         }
+        if (result.ok && opts.mode === "inline" && opts.inlineSelection && !this.store.all().some((p) => p.turnId === turn)) {
+          await this.recoverTextEdit(opts.inlineSelection);
+          if (this.cancelled) {
+            outcome = { status: "cancelled", agentUsed: agent, usedFallback: agentIdx > 0, appliedPaths: [], sessionId: this.activeSession };
+            break;
+          }
+        }
+        if (result.ok && opts.mode === "agent" && !followedUp) {
+          const changed = this.store.turnChanges(turn).map((c) => c.path);
+          const missing = changed.length ? missingRequirements(opts.display, changed) : [];
+          if (missing.length) {
+            // Same session, through TrueForge: the agent is told exactly what is missing and nothing else.
+            followedUp = true;
+            this.notice("info", `Checked the result against the request: ${missing.map((m) => m.kind).join(" and ")} still missing. Asking the agent to finish.`);
+            message = followUpMessage(missing);
+            continueSession = true;
+            continue;
+          }
+        }
         if (result.ok) {
           const applied = this.store.turnChanges(turn).map((c) => c.path);
           this.dispatch({ type: "local.status", status: "done" });
-          if (nudged && this.wroteToolCallAsText()) {
+          if (nudged && this.wroteToolCallAsText() && !this.store.all().some((p) => p.turnId === turn)) {
             this.notice("warn", `The model "${this.state.model ?? agent}" keeps writing tool calls as text instead of making them, so nothing was changed. It probably does not support tool calling; choose another model for this agent in TrueForge.`);
           }
           if (applied.length) this.notice("ok", `Applied after review: ${[...new Set(applied)].join(", ")}. Undo with "cIAo Forge: Undo Last Applied Change" (Ctrl+Alt+Z).`);
@@ -386,6 +413,34 @@ export class TurnRunner {
     } finally {
       if (stall) clearInterval(stall);
     }
+  }
+
+  /** Text the agent wrote since the user's last message. */
+  private replyText(): string {
+    const lastUser = this.state.items.map((i) => i.kind).lastIndexOf("user");
+    return this.state.items.slice(lastUser + 1).map((i) => (i.kind === "assistant" ? i.text : "")).join("\n");
+  }
+
+  /**
+   * Inline edit with a model that answered in text instead of calling propose_edit: turn the
+   * reply into a proposal and send it through the same per-hunk review. The model call still
+   * ran in TrueForge; only the parsing of its final answer happens here.
+   */
+  private async recoverTextEdit(sel: { path: string; text: string }): Promise<void> {
+    const edit = extractTextEdit(this.replyText(), sel.text);
+    if (!edit) return;
+    const host = this.makeHost(this);
+    const prep = await prepareProposal(host, { path: sel.path, edits: edit.edits, rationale: `Recovered from the model's reply (${edit.how}): it did not call propose_edit.` }, "inline");
+    if (!prep.proposal) {
+      if (prep.error) this.notice("warn", `The model answered in text and its edit could not be used: ${prep.error}`);
+      return;
+    }
+    this.notice("info", `The model answered with a ${edit.how} instead of calling the edit tool. cIAo Forge turned it into a diff; review it as usual.`);
+    const p = prep.proposal;
+    if (!this.store.isDecided(p)) await this.ui.review(p);
+    if (this.cancelled || p.status === "discarded") return;
+    const r = await this.store.apply(p.id, this.io);
+    this.notice(r.ok ? "ok" : "info", r.message);
   }
 
   /** True when the turn made no tool call at all but the reply contains one spelled out as JSON. */

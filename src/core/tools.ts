@@ -1,32 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { execFileSync } from "node:child_process";
 import { checkCommand, GuardError, resolveInside } from "./guards";
 import { applySearchReplaceDetailed, EditError, type SearchReplace } from "./hunks";
-
-const PY_CHECK = "import ast,sys\ntry:\n ast.parse(sys.stdin.read())\nexcept SyntaxError as e:\n print(f'{e.lineno}\\t{e.msg}'); sys.exit(3)\n";
-
-/**
- * Python syntax guard: returns null if `text` parses (or no Python is available),
- * otherwise "line<TAB>message". Used so an edit that would leave a .py file
- * unparseable (e.g. a mis-indented line) is rejected before review, with the
- * exact line reported back to the model, instead of breaking the workspace.
- */
-function pythonSyntaxError(text: string): string | null {
-  // "py" is the Windows launcher. On Windows "python3" is often the Microsoft Store
-  // stub, which exits 9009 without running anything, so any failure other than our
-  // own exit code 3 means "this interpreter is unusable, try the next one".
-  for (const exe of ["python3", "python", "py"]) {
-    try {
-      execFileSync(exe, ["-c", PY_CHECK], { input: text, timeout: 8000, stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
-      return null;
-    } catch (e) {
-      const err = e as { status?: number; stdout?: Buffer };
-      if (err.status === 3) return String(err.stdout ?? "").trim() || "?\tsyntax error";
-    }
-  }
-  return null; // no working Python: do not block the edit
-}
+import { pythonSyntaxError } from "./pyguard";
 import { editKey, type FileIO, type Proposal, type ProposalStore } from "./store";
 import { isTextPath, listWorkspaceFiles, planContext, renderPlan, type ContextPlan, type WorkspaceIndex } from "./context";
 
@@ -100,8 +76,8 @@ export async function prepareProposal(host: ToolHost, args: ProposeArgs, source:
       return { error: "Provide either edits (a list of {old_text, new_text}) or new_content." };
     }
     if (original !== null && proposed === original) return { noChange: true };
-    if (rel.endsWith(".py") && (original === null || pythonSyntaxError(original) === null)) {
-      const bad = pythonSyntaxError(proposed);
+    if (rel.endsWith(".py") && (original === null || (await pythonSyntaxError(original)) === null)) {
+      const bad = await pythonSyntaxError(proposed);
       if (bad) {
         const [ln, msg] = bad.split("\t");
         const n = Number(ln);

@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { exec, execFile } from "node:child_process";
+import { exec, execFile, spawn, type ChildProcess } from "node:child_process";
 import type { FileIO } from "./store";
 
 /** Plain node:fs implementation of FileIO (used by tests and as the fallback writer). */
@@ -78,10 +78,40 @@ function collect(resolve: (r: ExecResult) => void) {
   };
 }
 
+/** Commands started for the agent that are still running, so Stop can end them. */
+const running = new Set<ChildProcess>();
+
+function track(child: ChildProcess): void {
+  running.add(child);
+  child.once("exit", () => running.delete(child));
+  child.once("error", () => running.delete(child));
+}
+
+/**
+ * Stop every command the agent started (the whole process tree: `exec` runs a shell,
+ * and pytest may start workers). Called when the user presses Stop, so a cancelled run
+ * cannot keep changing files through a command that is still running.
+ */
+export function killRunningCommands(): number {
+  const n = running.size;
+  for (const child of running) {
+    if (child.pid === undefined) continue;
+    try {
+      if (process.platform === "win32") spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+      else child.kill("SIGKILL");
+    } catch {
+      /* already gone */
+    }
+  }
+  running.clear();
+  return n;
+}
+
 /** Run an (already allowlisted) command with a timeout, capturing combined output. Never throws. */
 export function execCommand(command: string, cwd: string, timeoutMs: number, pathPrepend: string[] = []): Promise<ExecResult> {
   return new Promise((resolve) => {
     const child = exec(command, { cwd, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env: commandEnv(pathPrepend), windowsHide: true }, collect(resolve));
+    track(child);
     child.stdin?.end();
   });
 }
@@ -90,6 +120,7 @@ export function execCommand(command: string, cwd: string, timeoutMs: number, pat
 export function execFileCommand(file: string, args: string[], cwd: string, timeoutMs: number, pathPrepend: string[] = []): Promise<ExecResult> {
   return new Promise((resolve) => {
     const child = execFile(file, args, { cwd, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env: commandEnv(pathPrepend), windowsHide: true, shell: false }, collect(resolve));
+    track(child);
     child.stdin?.end();
   });
 }

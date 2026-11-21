@@ -232,7 +232,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<ForgeApi> 
       await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "cIAo Forge: preparing the edit…", cancellable: true }, async (_p, tokenCancel) => {
         tokenCancel.onCancellationRequested(() => void stop());
         // The notification closes as soon as the diff is ready for review.
-        const run = runner.run({ display: `Inline edit ${rel}:${startLine}-${endLine} — ${instruction.trim()}`, message, mode: "inline", isolated: true, editScope: rel, contextBudget: Math.min(1200, cfg.tokenBudget), contextQuery: inlineContextQuery(req), contextExclude: [rel] });
+        const run = runner.run({ display: `Inline edit ${rel}:${startLine}-${endLine} — ${instruction.trim()}`, message, mode: "inline", isolated: true, editScope: rel, inlineSelection: { path: rel, text: req.fullText.split(/\r?\n/).slice(startLine - 1, endLine).join("\n") }, contextBudget: Math.min(1200, cfg.tokenBudget), contextQuery: inlineContextQuery(req), contextExclude: [rel] });
         const firstProposal = new Promise<void>((resolve) => {
           const off = store.onChange(() => {
             if (store.awaiting().length) {

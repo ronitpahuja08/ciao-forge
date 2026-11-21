@@ -103,7 +103,7 @@ function buildServer(host: ToolHost): McpServer {
     "run_command",
     {
       title: "Run a verification command",
-      description: "Run an allowlisted command in the workspace root after user approval: pytest, python -m pytest, flask, python -c, git status/diff/log/show, npm test, linters. No shell operators. Use it to verify your change.",
+      description: "Run an allowlisted command in the workspace root after user approval: pytest, python -m pytest, flask, git status/diff/log/show, npm test, linters. No shell operators. Use it to verify your change.",
       inputSchema: { command: z.string() },
       annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     },

@@ -2,6 +2,10 @@
 
 A coding agent that lives in VS Code and runs its whole agent loop on [TrueForge](https://github.com/truefoundry/trueforge). You ask for a change; the agent finds the files itself, proposes edits, and you accept or reject **each hunk** before anything is written. Built for the TrueFoundry Forge-a-thon (Techfest 2026-27, IIT Bombay).
 
+[![CI](https://github.com/ronitpahuja08/ciao-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/ronitpahuja08/ciao-forge/actions/workflows/ci.yml)
+
+**[Demo video](https://youtu.be/o5FtUkLNeg4)** (tasks A, B and C on Flask 3.1.3) · **[Write-up (PDF)](docs/WRITEUP.pdf)** · Team ID TM-2EBD4223A67
+
 - **Inline edit**: select code, press `Ctrl+Shift+I` (`Cmd+Shift+I`), type an instruction, review the diff in the editor.
 - **Agent mode**: one request in the panel drives a TrueForge tool loop that discovers and edits several files nobody named.
 - **Context assembly**: `@file` / `@symbol` mentions plus automatic retrieval within a token budget, with a visible table of what was chosen and why.
@@ -130,16 +134,20 @@ VS Code extension                      TrueForge (local)                 model(s
 
 **Cancellation.** Stop aborts the stream, cancels the TrueForge session, discards unreviewed proposals and reverts every change the cancelled run had already applied, newest first, so a multi-file change is never left half done.
 
+**Completeness check.** In agent mode, after a run that applied edits, the extension compares what changed with what the request asked for. If the request says the change must be documented or covered by a test and no such file changed, it sends one follow-up turn in the same TrueForge session naming only what is missing ([`src/core/requirements.ts`](src/core/requirements.ts)).
+
+**Models without tool calling (inline edit).** If the model answers an inline edit with a code block or a tool call written as text instead of calling `propose_edit`, the extension turns that answer into a proposal and shows it in the same per-hunk review ([`extractTextEdit`](src/core/inline.ts)). The model call still runs in TrueForge; nothing is written without review.
+
 **Context.** See the write-up, section 4, or run `npm run context -- /path/to/repo "your request"` to print the plan for any request.
 
 **Resilience.** A failed model call is classified (credentials, unreachable, rate limit, server error). Retryable failures are retried with exponential backoff (`maxRetries`), then the same request is sent to the fallback agent in a new session. If both fail you get one plain message and the workspace is untouched. The extension never re-runs a request after edits were applied.
 
-**Safety.** Tools refuse paths outside the workspace and inside `.git`, and never read, list, index or edit secrets files (`.env*` except examples, keys, `id_rsa`, `.npmrc`, `credentials*.json`, service-account files, `.ssh/`, `.aws/`). `run_command` needs the user's approval in TrueForge, shown with the exact command, and accepts only an allowlist (pytest, flask, `python -c`, read-only git without `--output`, npm test, linters) with no shell operators. The allowlist narrows what the agent can ask for; it is not a sandbox: `pytest`, `flask` and `python -c` execute code, so an approved command can still read or write any file your user account can, without a diff review. Read the command before you approve it. Commands run with a scrubbed environment: variables that look like keys, tokens or passwords are withheld, so the agent cannot print them back to the model. Read-only tools never go through a shell; model-supplied paths are passed as program arguments. The MCP server listens on loopback only and requires a bearer token.
+**Safety.** Tools refuse paths outside the workspace and inside `.git`, and never read, list, index or edit secrets files (`.env*` except examples, keys, `id_rsa`, `.npmrc`, `credentials*.json`, service-account files, `.ssh/`, `.aws/`). `run_command` needs the user's approval in TrueForge, shown with the exact command, and accepts only an allowlist (pytest, flask, read-only git without `--output`, npm test, linters) with no shell operators. The allowlist narrows what the agent can ask for; it is not a sandbox: `pytest` and `flask` execute project code (tests, `conftest.py`, the app), so an approved command can still read or write any file your user account can, without a diff review. `python -c` is deliberately not allowed, because it would let the agent read a secrets file the tools refuse to open. Read the command before you approve it. Commands run with a scrubbed environment: variables that look like keys, tokens or passwords are withheld, so the agent cannot print them back to the model. Read-only tools never go through a shell; model-supplied paths are passed as program arguments. The MCP server listens on loopback only and requires a bearer token.
 
 ## Tests
 
 ```bash
-npm run check          # type-check, 47 unit tests, eligibility guard
+npm run check          # type-check, 55 unit tests, eligibility guard
 npm run e2e            # 55 checks (74 with FLASK_DIR) against a real local TrueForge, scripted models, no API key
 FLASK_DIR=/path/to/flask PY_BIN=/path/to/flask-venv/bin npm run e2e    # adds tasks A, B, C on Flask 3.1.3
 npm run e2e:vscode     # 14 checks inside a real VS Code window

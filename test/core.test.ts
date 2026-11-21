@@ -9,11 +9,12 @@ import { inSkippedDir, listWorkspaceFiles } from "../src/core/context";
 import { startMcpServer, unwrapToolArguments } from "../src/core/mcpServer";
 import { applyHunks, applySearchReplace, applySearchReplaceDetailed, computeHunks, EditError } from "../src/core/hunks";
 import { editKey, ProposalStore, sha } from "../src/core/store";
-import { commandEnv, execCommand, execFileCommand, nodeIO } from "../src/core/nodeHost";
+import { commandEnv, execCommand, execFileCommand, killRunningCommands, nodeIO } from "../src/core/nodeHost";
 import { buildIndex, chunkFile, parseMentions, planContext, renderPlan, tokenize } from "../src/core/context";
 import { initialState, reduce, findTool } from "../src/core/reducer";
 import { backoffMs, classifyFailure, nextStep, sanitize } from "../src/core/resilience";
-import { buildInlineMessage } from "../src/core/inline";
+import { buildInlineMessage, extractTextEdit } from "../src/core/inline";
+import { followUpMessage, missingRequirements } from "../src/core/requirements";
 
 function tmp(files: Record<string, string>): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "forge-unit-"));
@@ -84,12 +85,12 @@ describe("command execution", () => {
 
 describe("command allowlist", () => {
   it("allows verification commands", () => {
-    for (const ok of ["pytest tests/test_cli.py -q", "python -m pytest -q", "flask --help", "python -m flask --app hello config", "git status", "git diff --stat", "npm test", 'python -c "print(1)"']) {
+    for (const ok of ["pytest tests/test_cli.py -q", "python -m pytest -q", "flask --help", "python -m flask --app hello config", "git status", "git diff --stat", "npm test"]) {
       expect(checkCommand(ok).ok, ok).toBe(true);
     }
   });
   it("refuses everything else, including chaining and redirection", () => {
-    for (const bad of ["rm -rf .", "git push", "git status && rm x", "pytest; curl x", "pytest > out.txt", "pip install x", "python script.py", "curl http://x", "", "pytest `whoami`", "pytest $(id)", "git diff --output=../../x", "git log --ext-diff", "git show --textconv HEAD"]) {
+    for (const bad of ["rm -rf .", "git push", "git status && rm x", "pytest; curl x", "pytest > out.txt", "pip install x", "python script.py", "curl http://x", "", "pytest `whoami`", "pytest $(id)", "git diff --output=../../x", "git log --ext-diff", "git show --textconv HEAD", 'python -c "print(1)"', "py -c \"open('.env').read()\""]) {
       expect(checkCommand(bad).ok, bad).toBe(false);
     }
   });
@@ -499,5 +500,52 @@ describe("review fixes", () => {
     expect(inSkippedDir(".pytest_cache/v/cache/lastfailed")).toBe(true);
     expect(inSkippedDir("src/flask.egg-info/PKG-INFO")).toBe(true);
     expect(inSkippedDir("src/flask/cli.py")).toBe(false);
+  });
+});
+
+describe("inline edit recovered from a text reply", () => {
+  const sel = "def f(v):\n    return v in ('0', 'false', 'no')";
+  it("uses a propose_edit call written as JSON", () => {
+    const reply = 'I will call the tool:\n```json\n{"name":"propose_edit","arguments":{"path":"a.py","edits":[{"old_text":"return v","new_text":"return v.lower()"}]}}\n```';
+    expect(extractTextEdit(reply, sel)).toEqual({ edits: [{ old_text: "return v", new_text: "return v.lower()" }], how: "tool call written as text" });
+  });
+  it("takes the last code block as the new selection", () => {
+    const reply = "Here is the change:\n```python\ndef f(v):\n    return v.lower() in ('0', 'false', 'no', 'off', 'n')\n```\nDone.";
+    const r = extractTextEdit(reply, sel);
+    expect(r?.how).toBe("code block in the reply");
+    expect(r?.edits[0]).toEqual({ old_text: sel, new_text: "def f(v):\n    return v.lower() in ('0', 'false', 'no', 'off', 'n')" });
+  });
+  it("returns null when there is nothing usable", () => {
+    expect(extractTextEdit("I cannot do that.", sel)).toBeNull();
+    expect(extractTextEdit("```python\n" + sel + "\n```", sel)).toBeNull();
+  });
+});
+
+describe("Stop ends running commands", () => {
+  it("kills a command the agent started", async () => {
+    const t0 = Date.now();
+    const run = execFileCommand(process.execPath, ["-e", "setTimeout(() => {}, 20000)"], os.tmpdir(), 30000);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(killRunningCommands()).toBe(1);
+    await run;
+    expect(Date.now() - t0).toBeLessThan(10000);
+  });
+});
+
+describe("agent mode completeness check", () => {
+  const taskB = "Add a new built-in CLI command flask config that prints the loaded application's configuration as JSON, masking the values of any key containing SECRET, PASSWORD, TOKEN or KEY as \"***\". It must appear in flask --help, be covered by a test, and be documented alongside the other built-in commands.";
+  it("flags the missing docs file in the recorded Task B outcome", () => {
+    expect(missingRequirements(taskB, ["src/flask/cli.py", "tests/test_cli.py"]).map((m) => m.kind)).toEqual(["docs"]);
+  });
+  it("is satisfied when implementation, test and docs changed", () => {
+    expect(missingRequirements(taskB, ["src/flask/cli.py", "tests/test_cli.py", "docs/cli.rst"])).toEqual([]);
+  });
+  it("does not ask for a test when the request only mentions a failing test", () => {
+    expect(missingRequirements("fix the failing test in the cli module", ["src/flask/cli.py"])).toEqual([]);
+  });
+  it("writes a follow-up that names only what is missing", () => {
+    const msg = followUpMessage(missingRequirements(taskB, ["src/flask/cli.py"]));
+    expect(msg).toMatch(/documentation/);
+    expect(msg).toMatch(/test file/);
   });
 });

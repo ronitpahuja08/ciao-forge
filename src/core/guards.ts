@@ -71,7 +71,6 @@ const ALLOWED: RegExp[] = [
   /^flask(\s|$)/,
   /^git\s+(status|diff|log|show)(\s|$)/,
   /^(npm|pnpm|yarn)\s+(test|run\s+(test|lint|compile|build|typecheck))(\s|$)/,
-  /^(python3?|py)\s+-c\s+/,
   /^(ruff|mypy|tsc|eslint)(\s|$)/,
 ];
 
@@ -86,7 +85,7 @@ export function checkCommand(command: string): { ok: true } | { ok: false; reaso
   // git can write files (--output) or run configured helpers (--ext-diff, --textconv) from these read-only commands.
   if (/^git\s/.test(cmd) && /(^|\s)(--output|--ext-diff|--textconv)\b/.test(cmd)) return { ok: false, reason: "git --output, --ext-diff and --textconv are not allowed" };
   if (!ALLOWED.some((re) => re.test(cmd))) {
-    return { ok: false, reason: "not on the allowlist (pytest, python -m pytest, flask, python -c, git status/diff/log/show, npm test, linters)" };
+    return { ok: false, reason: "not on the allowlist (pytest, python -m pytest, flask, git status/diff/log/show, npm test, linters)" };
   }
   return { ok: true };
 }
