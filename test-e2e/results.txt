@@ -1,14 +1,14 @@
 PASS  MCP rejects requests without the bearer token (401)  [status 401]
 PASS  MCP rejects a wrong token (401)
 PASS  TrueForge lists all 8 editor tools from the MCP server  [explain_history,find_symbol,gather_context,list_files,propose_edit,read_file,run_command,search_workspace]
-PASS  agent run completes  [{"status":"done","agentUsed":"e2e-good","usedFallback":false,"appliedPaths":["pkg/greet.py","tests/test_greet.py","docs/greet.md"],"sessionId":"01m7yn18pcyah0b5crahygjzgr"}]
+PASS  agent run completes  [{"status":"done","agentUsed":"e2e-good","usedFallback":false,"appliedPaths":["pkg/greet.py","tests/test_greet.py","docs/greet.md"],"sessionId":"01m7wp8xfjp69kd8427j7pwvt3"}]
 PASS  agent edited 3 files it was never told about  [pkg/greet.py,tests/test_greet.py,docs/greet.md]
 PASS  every edit went through a review before touching disk
 PASS  files on disk match the accepted proposals
 PASS  streamed assistant text reached the UI state
 PASS  tool timeline shows gather_context, read_file, propose_edit
 PASS  context plan shown (automatic + agent-requested) with the budget  [auto,tool]
-PASS  TrueForge session id captured for the session view  [http://localhost:8790/sessions/01m7yn18pcyah0b5crahygjzgr]
+PASS  TrueForge session id captured for the session view  [http://localhost:8790/sessions/01m7wp8xfjp69kd8427j7pwvt3]
 PASS  TrueForge's own session log has an approval for every edit (approval drives the review)  [3 required, 3 answered]
 PASS  undo removes the file the agent created  [Restored docs/greet.md to its content before the change.]
 PASS  undo x3 restores the original files byte for byte
@@ -19,28 +19,28 @@ PASS  two separate changes become two hunks
 PASS  only the accepted hunk is written  [Applied 1 of 2 hunk(s) to f.txt after user review. The user rejected 1 hunk(s); those lines are unchanged. Read the file before editing it again.]
 PASS  undo refuses when the user edited the file afterwards  [f.txt was modified after cIAo Forge applied its change, so it was left alone.]
 PASS  apply refuses a stale proposal instead of overwriting newer content  [f.txt changed on disk after this edit was proposed, so nothing was written. Read the file again and propose a fresh edit.]
-PASS  tokens stream incrementally (partial text visible mid-run)  [33 tokens after 1.5 s]
-PASS  cancel returns immediately  [20 ms]
+PASS  tokens stream incrementally (partial text visible mid-run)  [37 tokens after 1.5 s]
+PASS  cancel returns immediately  [15 ms]
 PASS  run reports cancelled
 PASS  no tokens arrive after cancel
 PASS  cancelled run left the workspace unchanged
 PASS  the TrueForge turn is cancelled server-side too  [cancelled]
 PASS  first edit was applied mid-run
-PASS  cancel rolls the applied edit back (no half-applied change)  [Stopped. Rolled back 1 file(s) changed by this run: a.txt. Your next message starts a new TrueForge session.]
+PASS  cancel rolls the applied edit back (no half-applied change)  [Stopped. Rolled back 1 file(s) changed by this run: a.txt.]
 PASS  cancel during review discards the proposal and writes nothing
-PASS  invalid key: the fallback model takes over with no user action  [{"status":"done","agentUsed":"e2e-fallback","usedFallback":true,"appliedPaths":["pkg/greet.py","tests/test_greet.py","docs/greet.md"],"sessionId":"01m7yn1frg3wd]
+PASS  invalid key: the fallback model takes over with no user action  [{"status":"done","agentUsed":"e2e-fallback","usedFallback":true,"appliedPaths":["pkg/greet.py","tests/test_greet.py","docs/greet.md"],"sessionId":"01m7wp91qz0ew]
 PASS  the user sees a clear fallback message, no stack trace  [Primary agent "e2e-badkey" failed: the model provider rejected the credentials (Request failed (401): Incorrect API key provided.). Switching automatically to the fallback agent "e2e-fallback" (second configured model). ]
-PASS  the fallback finished the task  [1485 ms]
+PASS  the fallback finished the task  [475 ms]
 PASS  unreachable endpoint: retried with exponential backoff first  [Model call failed on "e2e-dead": the model endpoint is unreachable (Cannot connect to API: bad port). Retrying in 0.4s (attempt 2 of 3)… | Model call failed on "e2e-dead": the model endpoint is unreachable (Cannot connect to API: bad port). Retrying in 0.8s (attempt 3 of 3)… | Primary agent "e2e-dea]
 PASS  then fell back automatically
 PASS  workspace unchanged when the fallback's diff is not accepted
 PASS  both models down: ends with a clear error  [The request could not be completed: the model endpoint is unreachable (Cannot connect to API: bad port). No files were changed.]
-PASS  …quickly, without hanging  [549 ms]
+PASS  …quickly, without hanging  [455 ms]
 PASS  …and the workspace is untouched
 PASS  the runner is free for the next request
-PASS  TrueForge unreachable: clear, actionable message  [TrueForge is not reachable. Start it with: OUTBOUND_URL_ALLOWED_HOSTS='["127.0.0.1","localhost"]' npx @truefoundry/trueforge@0.185.1 (PowerShell: set $env:OUTBOUND_URL_ALLOWED_HOSTS first; see the README), and check the cIAo Forge URL setting. No files were changed.]
+PASS  TrueForge unreachable: clear, actionable message  [TrueForge is not reachable. Start it with `npx @truefoundry/trueforge@latest` and check the cIAo Forge URL setting. No files were changed.]
 PASS  …workspace untouched
-PASS  missing agent: tells the user how to set it up  [The request could not be completed: TrueForge has no agent named "no-such-agent" (Agent not found: no-such-agent). Run "cIAo Forge: Set Up TrueForge Agents" (or `npm run setup`) to create it. No files were changed.]
+PASS  missing agent: tells the user how to set it up  [The request could not be completed: TrueForge has no agent named "no-such-agent" (Agent not found: no-such-agent). Run `node scripts/setup-trueforge.mjs` to create it. No files were changed.]
 PASS  tool call written as text: nudged once in the same session, then applied after review  [The model described a tool call in text instead of making it. Asking it once more to call the tool. | Applied after revi]
 PASS  …the nudge is an ordinary second turn in the same TrueForge session  [2 turns]
 PASS  deferred tool: schema fetched on demand with get_tool_info  [{"description":"Find where a function, class or type is defined. Says clearly when no such symbol ex]
@@ -53,6 +53,24 @@ PASS  run_command refuses non-allowlisted commands
 PASS  run_command refuses shell chaining
 PASS  find_symbol says plainly when a symbol does not exist
 PASS  propose_edit rejects an edit whose old_text is not in the file
-SKIP  Flask fixed tasks (set FLASK_DIR to a clean pallets/flask 3.1.3 checkout)
+PASS  flask checkout is 3.1.3 (22d92470) and clean  [22d92470]
+PASS  baseline: FLASK_DEBUG=off is True before the change
+PASS  Task C: the second model took over automatically and produced the diff  [Primary agent "e2e-badkey-inline" failed: the model provider rejected the credentials (Request failed (401): Incorrect API key provided.). Switching automatically to the fallback agent "e2e-fallback-i]
+PASS  Task C: git status is clean while the diff awaits review (no silent write)
+PASS  Task C: git status shows no files changed afterwards
+PASS  Task A: inline edit produced a reviewed diff for helpers.py only  [src/flask/helpers.py]
+PASS  Task A: the diff has separate hunks to accept or reject  [2 hunks]
+PASS  Task A verification: FLASK_DEBUG=off prints False
+PASS  Task A: 'N' is false too (case-insensitive), 'on' still true
+PASS  Task A: undo restores helpers.py (git status clean again)  [Restored src/flask/helpers.py to its content before the change.]
+PASS  Task B: completed  [{"status":"done","agentUsed":"e2e-good","usedFallback":false,"appliedPaths":["src/flask/cli.py","tests/test_cli.py","docs/cli.rst"],"sessionId":"01m7wp96yg62jykbetkna2bjy6"}]
+PASS  Task B: the diff touches three files nobody named  [docs/cli.rst,src/flask/cli.py,tests/test_cli.py]
+PASS  Task B: automatic context chose cli.py, test_cli.py and docs/cli.rst, each with a reason, inside the budget  [Context selected automatically: 5991 / 6000 tokens · 18 excerpts from 8 files · 218 files (~286k tokens) in the workspace]
+PASS  Task B: explain_history (a deferred tool) returned real commits for cli.py  [da600394 2025-01-29 George Waters: Handle help arg by itself the same as no args]
+PASS  Task B: the agent's pytest run was approval-gated  [run_command: python -m pytest tests/test_cli.py -q]
+PASS  Task B verification: pytest tests/test_cli.py passes  [57 passed, 3 skipped in 0.07s]
+PASS  Task B verification: config appears in flask --help  [config  Show the app's configuration as JSON.]
+PASS  Task B verification: flask config prints masked JSON  [{ "API_TOKEN": "***", "APPLICATION_ROOT": "/", "DB_PASSWORD": "***", "DEBUG": false, "EXPLAIN_TEMPLATE_LOADING]
+PASS  Task B: undo restores every file (git status clean)
 
-55 passed, 0 failed
+74 passed, 0 failed
