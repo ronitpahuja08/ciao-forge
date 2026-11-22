@@ -1,6 +1,6 @@
 # cIAo Forge: write-up
 
-TrueFoundry Forge-a-thon, Round 1 · Team ID: **TM-2EBD4223A67** · Repository: **https://github.com/ronitpahuja08/ciao-forge** · Video: **https://youtu.be/o5FtUkLNeg4**
+TrueFoundry Forge-a-thon, Round 1 · Team Darwin · Team ID: **TM-2EBD4223A67** · Repository: **https://github.com/ronitpahuja08/ciao-forge** · Video: **https://youtu.be/6Ax-6M08I_g**
 
 ## 1. Team
 
@@ -14,73 +14,79 @@ TrueFoundry Forge-a-thon, Round 1 · Team ID: **TM-2EBD4223A67** · Repository: 
 
 ## 2. Starting point
 
-From scratch. There is no upstream fork and no fork commit. This repository is a single-commit export of the extension from our team's working repository, so its history is one commit by design. Runtime dependencies are `@truefoundry/trueforge-sdk`, `@modelcontextprotocol/sdk` and `zod`. One idea is carried over from our own earlier project, cIAo: an agent should know why code is the way it is, which became the `explain_history` tool. No code from that project is included.
+From scratch. We did not fork Cline, Continue or any other project. The public repository is a single-commit export of the extension from our team's working repository, which is why its history starts with one commit. At runtime we depend on `@truefoundry/trueforge-sdk`, `@modelcontextprotocol/sdk` and `zod`, and nothing else. One idea came from an earlier project of ours, cIAo: before an agent changes a line, it should know why the line is there. That became the `explain_history` tool, which returns the last few commits that touched a file or a line. No code was carried over.
 
 ## 3. Architecture on TrueForge
 
-The extension is a client of a TrueForge agent and nothing more. It creates a session for a named agent, sends the user's turn with `sessions.createTurnStream`, and renders the streamed events (`model.message.delta`, tool calls, approvals, `turn.done`) in a webview panel. It contains no model-provider SDK, URL or key; a script (`npm run check:eligibility`) fails the build if one appears.
+The extension does not call any model provider. It uses the TrueForge TypeScript SDK to create a session for a named agent, sends each request with `sessions.createTurnStream`, and shows the streamed events (text deltas, tool calls, approvals and `turn.done`) in a side panel. There is no provider SDK, URL or key in the extension's source, and `npm run check` fails if one appears.
 
-**Editor capabilities are MCP tools.** The extension hosts a Streamable-HTTP MCP server on loopback, protected by a random bearer token, and registers it in TrueForge as the connector `ciao-editor` through the SDK when it starts. Eight tools: `gather_context`, `read_file`, `search_workspace`, `find_symbol`, `list_files`, `explain_history` (read-only), and `propose_edit` and `run_command` (approval required). The agent decides what to read and change; the extension only executes tool calls.
+On start-up the extension runs a small Streamable-HTTP MCP server on `127.0.0.1`, protected by a bearer token, and registers it in TrueForge through the SDK as the connector `ciao-editor`. The agent reaches the editor only through this server, which exposes eight tools. Six only read: `gather_context`, `read_file`, `search_workspace`, `find_symbol`, `list_files` and `explain_history`. Two need approval: `propose_edit` and `run_command`. The agent decides what to read and write, and the extension just runs those calls.
 
-**TrueForge tool approval drives the diff review.** `propose_edit` is listed under `requireApprovalForTools`. When TrueForge pauses the turn with `tool.approval_required`, the extension computes the diff from the tool call's arguments and opens the review. The user's per-hunk decisions are the approval: at least one accepted hunk sends `allow` and the tool then writes only the accepted hunks; rejecting all sends `deny` with a reason the agent sees. We chose this over reviewing after the fact because the harness then holds the single source of truth for what was permitted, and its session log shows an approval event for every edit.
+Diff review is built on TrueForge's tool approval. `propose_edit` is listed in the agent's `requireApprovalForTools`, so TrueForge pauses the turn with `tool.approval_required` before the tool runs. We build the diff from the tool call's arguments and open it for review. If the user accepts at least one hunk we answer `allow`, and only the accepted hunks are written. If they reject everything we answer `deny`, with a reason the agent can read. We did it this way so that nothing reaches the disk without passing through TrueForge, and its session log carries an approval event for every edit. Edits that would leave a Python file unparseable are refused before they reach review.
 
-**Harness features used, and why.**
-- *Deferred tool loading.* Five core tools are preloaded (`preloadTools`); `find_symbol`, `list_files` and `explain_history` are deferred and fetched by the agent with `get_tool_info` / `call_tool` only when needed. This keeps tool definitions out of every request.
-- *Compaction*, with an explicit trigger at 48k input tokens, so a long Task B run on a small-window model summarises old tool output instead of failing.
-- *Dynamic subagents* are enabled for the main agent, for delegating a broad read-only search.
-- *Two agent shapes.* Inline edits use a separate minimal agent (`ciao-forge-inline`: one edit tool, preloaded, no subagents, six iterations). We added it after testing with a 1.5B local model, which the full agent's deferred-tool prompt confused.
-- Sessions, streaming, cancellation (`sessions.cancel`) and the session UI are used as provided. Sandbox, skills and Code Mode are not used: none is needed for the fixed tasks, and TrueForge's local sandbox does not run on Windows, where part of the team developed.
+The extension handles model failures itself. When a turn fails, we look at the error first. A credential error goes straight to the fallback agent; a network or server error is retried with backoff first. The same request is then re-sent to a second TrueForge agent bound to the fallback provider. If edits were already applied, we stop instead of re-running.
+
+We used these harness features:
+- *Deferred tool loading.* Five core tools are preloaded. `find_symbol`, `list_files` and `explain_history` stay out of the prompt until the agent fetches them with `get_tool_info` and calls them with `call_tool`, which keeps every request smaller. It is visible in the video in the panel and in the TrueForge session.
+- *Compaction* at 48k input tokens, so a long Task B run summarises old tool output instead of running out of window.
+- *Dynamic subagents* are enabled on the main agent for wide read-only searches; the recorded run did not need one.
+- *Two agent shapes, four definitions.* Agent mode uses `ciao-forge`; inline edits use a smaller `ciao-forge-inline` (just `propose_edit` and `read_file`, preloaded, six iterations). Each has a `-fallback` twin bound to the fallback provider, which is the agent that takes over at 3:07. We added it after a 1.5B local model failed to call tools under the full agent's prompt.
+- Sessions, streaming, `sessions.cancel` and the session viewer are used without changes. We did not use sandbox, skills or Code Mode; the three tasks did not need them.
 
 ## 4. How context is selected
 
-Flask at 3.1.3 is about 294k tokens across 218 text files; the default budget for retrieved context is **6,000 tokens** (`ciaoForge.tokenBudget`, tokens estimated as characters ÷ 4).
+Flask 3.1.3 is about 286k tokens across 218 text files (the panel prints this at 0:30). By default retrieved context gets **6,000 tokens** (`ciaoForge.tokenBudget`; we estimate tokens as characters ÷ 4).
 
-1. **Explicit mentions first.** `@path/to/file` and `@Symbol` are resolved against the index (suffix match for files, definition lookup for symbols), pinned ahead of everything else, and may use up to 60% of the budget. Unresolved mentions are reported, not guessed.
-2. **Chunking.** Files are split at top-level definitions (code) or headings (docs), at most 60 lines per chunk, so an excerpt is a whole function or section.
-3. **Scoring.** BM25 over chunk terms, with identifiers split (`get_debug_flag` → debug, flag) and word forms folded (documented → doc). A match in the file path is boosted, weighted by how rare that term is across paths, so `cli.py` counts for "cli" while the many paths under `tests/` do not all count for "test". A match in a defined symbol's name is boosted.
-4. **Companion expansion.** For the top source files, the test and the doc page sharing the same stem (`cli.py` → `test_cli.py`, `cli.rst`) are added, ranked higher when the request mentions tests or documentation. This is what finds all three Task B files from a request that names none.
-5. **Packing.** Round-robin over the top eight files, best chunk of each first, with a per-file cap of 45% of the remaining budget, so one large file cannot consume it all. Files that ranked but did not fit are listed as omitted.
+1. We resolve explicit mentions first. `@path/to/file` and `@Symbol` are looked up against an in-memory index and pinned before anything else; `@file` mentions may use up to 60% of the budget. A name that matches nothing is reported back. A file name that matches several paths takes the shortest one.
+2. We cut files at top-level definitions, or at headings for docs, and no chunk is longer than 60 lines.
+3. We score chunks with BM25. Identifiers are split (`get_debug_flag` becomes *debug*, *flag*) and common word forms are reduced (*documented* becomes *doc*). A query word that appears in a file's path adds weight, and rarer path words count for more. "cli" appears in few paths, so `cli.py` gets a real boost; "test" appears in every path under `tests/`, so it adds little. A match in a defined symbol's name also adds weight.
+4. For the two best source files we add their companions: the test and the doc page with the same stem (`cli.py` brings `test_cli.py` and `cli.rst`), weighted higher when the request mentions tests or docs. This is how Task B's three files are found from a request that names none.
+5. We pack the top eight files round-robin, taking each file's best chunk first. No file may use more than 45% of the remaining budget. Files that ranked but did not fit are listed as left out.
 
-Every choice carries a reason. The plan is shown in the panel as a table (file, lines, tokens, score, why) before the turn runs, and is prepended to the user message. The agent can ask for more with `gather_context(query)`, under the same budget, and that call and its table appear in the panel and the TrueForge session. For inline edits the query is the instruction plus the identifiers in the selection, the edited file is excluded (it is already in the message), and the budget is 1,200 tokens.
+The plan is shown in the panel before the turn starts, as a table of file, lines, tokens, score and the reason each file was picked, and it is appended to the message the agent receives. The agent can ask for more with `gather_context(query)`, under the same budget. For inline edits the query is the instruction plus the identifiers in the selection, the open file is left out because it is already in the message, and the budget drops to 1,200 tokens.
 
-Trade-off: lexical retrieval needs no index build, embedding model or network and runs in under a second, but it cannot bridge vocabulary (a request saying "settings" will not find `config`) except through the small synonym table.
+Lexical search only needs the files on disk. On Flask, building the index took us 0.3 to 0.9 s and each plan about 20 ms. The cost is that it cannot link a request that says "settings" to code called `config` beyond a small synonym table.
 
 ## 5. Model setup
 
 | Model | Where it ran | Used for | Approximate cost |
 | --- | --- | --- | --- |
-| Mercury 2 (`mercury-2`, Inception) as TrueForge provider `primary` | Inception API, OpenAI-compatible, registered in TrueForge as a custom provider | Demo video, tasks A and B | $0.25 / $0.75 per 1M input / output tokens: about $0.20 to $0.40 per Task B run, under $0.01 per Task A |
-| Mercury 2 again, as a separate TrueForge provider `fallback` with its own key entry | Same API | Task C: takes over when `primary` has an invalid key | same |
-| Qwen2.5-Coder 1.5B (Q4 GGUF) | Local, llama.cpp server, CPU | Development: weak-model stress test | $0 |
+| Mercury 2 (`mercury-2`, Inception), TrueForge provider `primary` | Inception's OpenAI-compatible API, added to TrueForge as a custom provider | Video: Tasks A and B | $0.25 / $0.75 per 1M input / output tokens; roughly $0.20 to $0.40 for a Task B run and under a cent for Task A |
+| Mercury 2 again, as a separate TrueForge provider `fallback` with its own key | Same API | Video: Task C, after `primary` was given an invalid key | Same rates; under a cent for Task C |
+| Qwen2.5-Coder 1.5B (Q4 GGUF) | Our laptop, llama.cpp server, CPU only | Development only: testing with a weak model | $0 |
 | Scripted test model (`scripts/mock-model.mjs`) | Local | Automated end-to-end tests only | $0 |
 
-For Task C we register the same model twice under two provider entries, so the fallback is a different provider configuration (and credentials), not a different model; any second model plugs into the same slot. All models are configured in TrueForge as providers (catalog or OpenAI-compatible); `config/models.example.json` is the example file. **Switching models:** add the provider in TrueForge, then run `npm run setup -- --primary <provider/model> --fallback <provider/model>` (or the command *cIAo Forge: Set Up TrueForge Agents*). Nothing in the extension is provider-specific.
+For Task C the fallback is a second provider entry with separate credentials. It is the same model. Any other model can take that slot without code changes. All models live in TrueForge as providers, and `config/models.example.json` is the example file. To switch, add the provider in TrueForge and run `npm run setup -- --primary <provider/model> --fallback <provider/model>`, or use the command *cIAo Forge: Set Up TrueForge Agents*.
 
 ## 6. Scorecard
 
+Timestamps refer to the video linked above (3:57). It was recorded on a Mac, so the inline-edit key is `Cmd+Shift+I` there (`Ctrl+Shift+I` elsewhere).
+
 | Criterion | Video | Claim |
 | --- | --- | --- |
-| A1 Inline edit | 0:25–0:45 | Selection + `Ctrl+Shift+I` + instruction; the review tab shows two hunks, each with Accept / Reject (0:35); after accepting, `FLASK_DEBUG=off` prints `False` (0:45). |
-| A2 Agent mode | 0:55–1:35 | One request, no files named; the agent finds and edits `src/flask/cli.py` and `tests/test_cli.py` and its own `pytest` run passes. In this take it did not change `docs/cli.rst` (see limitations). |
-| A3 Streaming and cancellation | 3:05–3:20 | Tokens and tool calls stream live; Stop ends the run at once and rolls back the file it had already changed (`src/flask/cli.py`). |
-| B1 Context assembly | 0:55 | 6,000-token budget; before the turn the panel table lists the chosen files (`cli.py`, `test_cli.py`, `docs/cli.rst`, …) with tokens and the reason for each. |
-| B2 Diff safety | 0:35, 0:49 | Nothing is written before review; hunks are accepted one by one; the applied change is then undone (status bar: "Restored src/flask/helpers.py"). |
-| B3 Resilience | 2:15–3:00 | Primary key set invalid (401); the run switches automatically to a second configured provider (same Mercury 2 model, separate provider entry) with no user action; nothing written before review; `git status` clean. |
-| B4 TrueForge integration | 1:40–2:00, 3:20 | Editor capabilities are MCP tools; the TrueForge session lists every tool call of the Task B run; edits pass through TrueForge approval; the deferred `explain_history` tool is loaded with `get_tool_info` / `call_tool` (panel, 3:20). |
-| C1 Video | n/a | Tasks A, B, C in order in 3:29; A and C verified in the terminal, B by the agent's test run in the panel; TrueForge session shown during B. |
+| A1 Inline edit | 0:20–0:45 | `get_debug_flag` is selected and the instruction typed after the keybinding (0:25). The review tab shows two hunks, each with its own Accept and Reject buttons (0:35). After accepting, `FLASK_DEBUG=off` prints `False` (0:45). |
+| A2 Agent mode | 0:55–2:28 | One request with no files named. The agent edits `src/flask/cli.py`, `docs/cli.rst` and `tests/test_cli.py`. `pytest tests/test_cli.py` passes (2:07), `config` appears in `flask --help` (2:10), the masked JSON prints (2:19) and `git diff --stat` shows three files (2:25). |
+| A3 Streaming and cancellation | 1:05–1:20, 3:28–3:46 | Tool calls stream into the panel as they arrive. In the last segment (sped up 6x) Stop ends the run and rolls back the one file it had changed (3:43). |
+| B1 Context assembly | 0:30–0:40, 1:00 | Each run shows its plan before it starts. Task A's table shows the reason each file was picked (0:38). Task B's table lists the chosen files (`cli.py`, `test_cli.py`, `docs/cli.rst` and five more) with lines, tokens and score, plus the files ranked but left out of the budget (1:00). The reason column is clipped at that panel width. |
+| B2 Diff safety | 0:35–0:49 | The review tab offers Accept and Reject on each hunk and says nothing has been written to disk (0:35). The change is applied only after it is accepted (0:37), then undone (status bar, 0:49). |
+| B3 Resilience | 2:34–3:28 | `git status` is clean, then the primary key is made invalid. On Task A again the primary returns 401 and the extension switches to the fallback agent (same Mercury 2 model, second provider entry) with no click (3:07). The diff waits for review with nothing written, and `git status` is still clean (3:28). |
+| B4 TrueForge integration | 1:20, 1:52–2:01, 3:40 | Editor tools are MCP, and every edit passes TrueForge approval. The deferred `explain_history` tool is called with `call_tool` (panel 1:20, TrueForge session 1:58), and is loaded with `get_tool_info` first in the last run (3:40). |
+| C1 Video | 0:20, 0:55, 2:31 | Tasks A, B and C start at these times, in order, each checked on screen, with the TrueForge session shown during B. |
 | C2 Write-up | n/a | This document. |
 
 ## 7. Tools used
 
-Claude Code (Anthropic) was used heavily to write and test the extension, including the end-to-end harness. TrueForge 0.185.1, the TrueForge TypeScript SDK 0.185.0, the MCP TypeScript SDK, esbuild, vitest, VS Code 1.143, llama.cpp.
+We used Claude Code (Anthropic) heavily, both to write the extension and to build its end-to-end test harness. Also: TrueForge 0.185.1, the TrueForge TypeScript SDK 0.185.0, the MCP TypeScript SDK, esbuild, vitest, VS Code and llama.cpp.
 
 ## 8. Known limitations and what you would do with another month
 
-- **Models without native tool calling cannot drive the agent.** A 1.5B local model printed its tool call as text. We nudge once through TrueForge and then stop with a clear message; we do not parse tool calls out of text, because that would move the loop out of the harness.
-- **Retrieval is lexical.** No embeddings and no call graph; synonyms are a hand-written table. Next: symbol-graph expansion (callers and importers of the top hits) and an optional local embedding index.
-- **The diff preview is a review tab plus CodeLens on the original lines**, not inline ghost text in the file. Added lines are previewed in the tab and on hover.
-- **Approximate matching.** When the model's `old_text` differs only in indentation or quote style we still locate it (whole lines, unique match, flagged to the user). A rejected hunk in the middle of a multi-file change can leave the agent's later edits inconsistent; the agent is told, but we do not re-plan for it.
-- **Cancellation rolls back by content hash.** If the user edits a file the cancelled run had changed, that file is left alone and named in the message rather than reverted.
-- **One workspace folder**, text files under 200 KB, index rebuilt in memory on change (about 0.4 s on Flask).
-- **The recorded Task B is weaker than our best rehearsal.** In the take we submitted, the agent changed the implementation and the test but not `docs/cli.rst`, and Task B's result is shown by the agent's own `pytest` run rather than by `flask config` in the terminal. Rehearsals with the same model and instructions changed all three files in six of seven runs (`test-e2e/results-real-model.txt`).
-- **One real model, and it varies between runs.** The automated suites use a scripted model. With mercury-2, Task B touched all three files in most rehearsals, but one run skipped the docs file until we added a requirements checklist to the agent's instructions. Before we pinned Werkzeug, the model also drifted into unrelated files, trying to fix test failures that were already there at baseline. With another month: a recorded benchmark across several real models, sandboxed command execution through TrueForge's sandbox, Code Mode for bulk search, and a skill carrying per-repository conventions.
+- A model has to support tool calling. The 1.5B local model wrote its tool call as plain text. We ask once more through TrueForge, then stop with a clear message. We chose not to parse tool calls out of text, because that would take the loop out of the harness.
+- Our fallback covers a bad key or a failing endpoint, but not an outage at Inception. In the video both providers point at the same API with different keys, so an Inception outage would stop both. Where the panel message says "second model", it means a second provider entry. A different provider can take that slot with one `npm run setup` command.
+- Retrieval is lexical. There are no embeddings or call graph, and the synonym table is written by hand. Next we would add symbol-graph expansion (callers and importers of the top hits) and an optional local embedding index.
+- The preview is a review tab plus CodeLens on the original lines. There is no inline ghost text; new lines show in the tab and on hover.
+- If the model's `old_text` differs only in whitespace or quote style, we still match it, as long as it covers whole lines with exactly one match, and we tell the user. If the user rejects one hunk in the middle of a multi-file change, the agent is told but does not re-plan around it. The video never shows a rejected hunk.
+- Cancellation rolls back by content hash. If the user edited a file after the agent changed it, we leave that file alone and name it in the message. The video does not show `git status` after Stop.
+- One workspace folder, text files under 200 KB, and the index is rebuilt in memory on the next request after a file changes.
+- We tested with one real model, and it is not perfectly consistent. Task B changed code, docs and tests in six of our seven rehearsal runs, though twice the test went into a new file instead of `tests/test_cli.py`. Once it skipped the docs. The run notes are in `test-e2e/results-real-model.txt`. Before we pinned Werkzeug 3.1.0, one Flask test already failed at baseline, and the model wandered into unrelated files trying to fix it. The automated suites use a scripted model, so they test the extension's behaviour. They say nothing about model quality.
+- The video joins two sessions. Task B was recorded again in a separate run, so the terminal prompt and the panel history change between tasks. No task is cut between its instruction and its diff. The npm error lines next to `git status` at 3:28 come from a command we mistyped in the terminal, not from the extension.
+- With another month: a recorded benchmark across several real models, commands run in TrueForge's sandbox, Code Mode for bulk search, and a skill that carries each repository's conventions.
