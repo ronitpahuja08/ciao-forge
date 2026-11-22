@@ -297,6 +297,21 @@ async function main(): Promise<void> {
     check("cancel rolls the applied edit back (no half-applied change)", snapshot(root) === before, env.notices());
   }
 
+  // ---------- 8b. Cancel from TrueForge (not the Stop button) after an edit was applied ----------
+  {
+    const root = tmpWorkspace({ "a.txt": "alpha\nbeta\n" });
+    const before = snapshot(root);
+    env.use(root);
+    const run = env.runner.run({ display: "CANCEL_AFTER_EDIT_TEST", mode: "agent", fresh: true, contextBudget: 0 });
+    for (let i = 0; i < 100 && read(root, "a.txt") === "alpha\nbeta\n"; i++) await sleep(50);
+    check("first edit was applied before the server-side cancel", read(root, "a.txt") === "ALPHA\nbeta\n");
+    await sleep(400);
+    await client.sessions.cancel(env.last().sessionId!, {});
+    const out = await run;
+    check("a turn cancelled in TrueForge reports cancelled", out.status === "cancelled", out.status);
+    check("a turn cancelled in TrueForge rolls the applied edit back", snapshot(root) === before, env.notices());
+  }
+
   // ---------- 9. Cancel while a diff is awaiting review ----------
   {
     const root = tmpWorkspace({ "a.txt": "alpha\nbeta\n" });

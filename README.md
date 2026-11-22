@@ -128,19 +128,19 @@ VS Code extension                      TrueForge (local)                 model(s
 
 **No silent writes, and undo.** Proposals live in memory ([`src/core/store.ts`](src/core/store.ts)). A write happens only for accepted hunks, only if the file still matches what the diff was computed against, and goes through a `WorkspaceEdit`, so both `Ctrl+Z` and **cIAo Forge: Undo Last Applied Change** (`Ctrl+Alt+Z`) revert it. Undo refuses if you have edited the file since.
 
-**Cancellation.** Stop aborts the stream, cancels the TrueForge session, discards unreviewed proposals and reverts every change the cancelled run had already applied, newest first, so a multi-file change is never left half done.
+**Cancellation.** Stop aborts the stream, cancels the TrueForge session, discards unreviewed proposals and reverts every change the cancelled run had already applied, newest first, so a multi-file change is never left half done. The same rollback runs when the turn is cancelled from TrueForge itself (its UI or API), and an edit whose write was already in flight when Stop arrived is reverted too.
 
 **Context.** See the write-up, section 4, or run `npm run context -- /path/to/repo "your request"` to print the plan for any request.
 
 **Resilience.** A failed model call is classified (credentials, unreachable, rate limit, server error). Retryable failures are retried with exponential backoff (`maxRetries`), then the same request is sent to the fallback agent in a new session. If both fail you get one plain message and the workspace is untouched. The extension never re-runs a request after edits were applied.
 
-**Safety.** Tools refuse paths outside the workspace and inside `.git`, and never read, list, index or edit secrets files (`.env*` except examples, keys, `id_rsa`, `.npmrc`, `credentials*.json`, service-account files, `.ssh/`, `.aws/`). `run_command` needs the user's approval in TrueForge and accepts only an allowlist (pytest, flask, `python -c`, read-only git without `--output`, npm test, linters) with no shell operators. Commands run with a scrubbed environment: variables that look like keys, tokens or passwords are withheld, so the agent cannot print them back to the model. Read-only tools never go through a shell; model-supplied paths are passed as program arguments. The MCP server listens on loopback only and requires a bearer token.
+**Safety.** Tools refuse paths outside the workspace and inside `.git`, and never read, list, index or edit secrets files (`.env*` except examples, keys, `id_rsa`, `.npmrc`, `credentials*.json`, service-account files, `.ssh/`, `.aws/`). `run_command` needs the user's approval in TrueForge and accepts only an allowlist (pytest, flask, `python -c`, read-only git, npm test, linters) with no shell operators. On top of that it refuses any command that names a secrets file (`git show HEAD:.env`), git options that write files or read outside the repository (`--output`, `--no-index`, `--ext-diff`, `--textconv`, including abbreviations), pytest options that write or delete files (`--basetemp`, `--junitxml`), and `python -c` code that writes, deletes, spawns processes or reads the environment. This filter is best effort; the approval is the real gate. Commands run with a scrubbed environment: variables that look like keys, tokens or passwords are withheld, so the agent cannot print them back to the model. Read-only tools never go through a shell; model-supplied paths are passed as program arguments. The MCP server listens on loopback only and requires a bearer token.
 
 ## Tests
 
 ```bash
-npm run check          # type-check, 42 unit tests, eligibility guard
-npm run e2e            # 55 checks (74 with FLASK_DIR) against a real local TrueForge, scripted models, no API key
+npm run check          # type-check, 46 unit tests, eligibility guard
+npm run e2e            # 58 checks (77 with FLASK_DIR) against a real local TrueForge, scripted models, no API key
 FLASK_DIR=/path/to/flask PY_BIN=/path/to/flask-venv/bin npm run e2e    # adds tasks A, B, C on Flask 3.1.3
 npm run e2e:vscode     # 14 checks inside a real VS Code window
 ```

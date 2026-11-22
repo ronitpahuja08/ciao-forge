@@ -186,6 +186,11 @@ export class ProposalStore {
     }
     if (p.status !== "pending") return { ok: false, message: `proposal is already ${p.status}` };
     const current = await io.read(p.abs);
+    // A cancel can land while the read above is in flight: rollbackTurn then marks this
+    // proposal discarded but has nothing applied to revert yet, so do not write at all.
+    if ((p.status as Proposal["status"]) !== "pending") {
+      return { ok: false, message: `The run was cancelled before the change to ${p.path} was written. Nothing was written.` };
+    }
     if (sha(current) !== p.originalHash) {
       p.status = "stale";
       this.emit();
@@ -211,6 +216,18 @@ export class ProposalStore {
       appliedAt: Date.now(),
     };
     this.applied.push(change);
+    if ((p.status as Proposal["status"]) === "discarded") {
+      // Cancelled while the write was in flight: rollbackTurn already ran without seeing this
+      // change, so revert it here rather than leave it on disk.
+      const r = await this.revert(change, io);
+      this.emit();
+      return {
+        ok: false,
+        message: r.ok
+          ? `The run was cancelled while ${p.path} was being written, so the change was rolled back. Nothing was kept.`
+          : `The run was cancelled while ${p.path} was being written, and the file was edited again before it could be rolled back; it was left alone.`,
+      };
+    }
     p.status = "applied";
     this.emit();
     const rejected = p.hunks.length - accepted.length;

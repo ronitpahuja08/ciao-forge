@@ -66,6 +66,8 @@ export class TurnRunner {
   private sessions = new Map<string, string>(); // agent name -> session id (panel conversation)
   private abort: AbortController | undefined;
   private cancelled = false;
+  /** Set when TrueForge itself ended the turn as cancelled (not the Stop button), so run() must roll back. */
+  private serverCancelled = false;
   private busy = false;
   private localTurnId = "idle";
   private activeSession: string | undefined;
@@ -144,13 +146,7 @@ export class TurnRunner {
     this.abort?.abort();
     this.dispatch({ type: "local.status", status: "cancelled" });
     // Roll back first so the workspace is consistent even if TrueForge is slow to answer.
-    const rb = await this.store.rollbackTurn(turn, this.io);
-    const parts: string[] = ["Stopped."];
-    if (rb.reverted.length) parts.push(`Rolled back ${rb.reverted.length} file(s) changed by this run: ${rb.reverted.join(", ")}.`);
-    if (rb.discarded) parts.push(`Discarded ${rb.discarded} unreviewed proposal(s).`);
-    if (rb.skipped.length) parts.push(`Left alone because they were edited afterwards: ${rb.skipped.join(", ")}.`);
-    if (!rb.reverted.length && !rb.skipped.length) parts.push("No files were changed.");
-    this.notice("warn", parts.join(" "));
+    await this.rollbackWithNotice(turn, "Stopped.");
     if (sid) {
       try {
         await Promise.race([this.getClient().sessions.cancel(sid, {}), sleep(4000)]);
@@ -160,10 +156,22 @@ export class TurnRunner {
     }
   }
 
+  /** Revert everything a turn applied and discard its unreviewed proposals, then say what happened. */
+  private async rollbackWithNotice(turn: string, lead: string): Promise<void> {
+    const rb = await this.store.rollbackTurn(turn, this.io);
+    const parts: string[] = [lead];
+    if (rb.reverted.length) parts.push(`Rolled back ${rb.reverted.length} file(s) changed by this run: ${rb.reverted.join(", ")}.`);
+    if (rb.discarded) parts.push(`Discarded ${rb.discarded} unreviewed proposal(s).`);
+    if (rb.skipped.length) parts.push(`Left alone because they were edited afterwards: ${rb.skipped.join(", ")}.`);
+    if (!rb.reverted.length && !rb.skipped.length) parts.push("No files were changed.");
+    this.notice("warn", parts.join(" "));
+  }
+
   async run(opts: RunOptions): Promise<RunOutcome> {
     if (this.busy) return { status: "error", usedFallback: false, appliedPaths: [], error: "A run is already in progress." };
     this.busy = true;
     this.cancelled = false;
+    this.serverCancelled = false;
     this.localTurnId = `turn-${Date.now()}-${++localSeq}`;
     const turn = this.localTurnId;
     const cfg = this.cfg();
@@ -200,6 +208,12 @@ export class TurnRunner {
         const result = await this.attempt(agent, message, !continueSession && (agentIdx > 0 || opts.fresh === true));
         continueSession = false;
         if (this.cancelled) {
+          // Stop already rolled back in cancel(). A cancel that came from TrueForge (its UI or API)
+          // did not, so undo this turn's edits here: a cancelled run never leaves a half-done change.
+          if (this.serverCancelled) {
+            this.dispatch({ type: "local.status", status: "cancelled" });
+            await this.rollbackWithNotice(turn, "The run was cancelled in TrueForge.");
+          }
           outcome = { status: "cancelled", agentUsed: agent, usedFallback: agentIdx > 0, appliedPaths: [], sessionId: this.activeSession };
           break;
         }
@@ -317,6 +331,7 @@ export class TurnRunner {
       if (terminal.status === "done") return { ok: true };
       if (terminal.status === "cancelled") {
         this.cancelled = true;
+        this.serverCancelled = true;
         return { ok: false };
       }
       const msg = String(terminal.message ?? "turn failed");

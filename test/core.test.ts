@@ -92,6 +92,49 @@ describe("command allowlist", () => {
       expect(checkCommand(bad).ok, bad).toBe(false);
     }
   });
+  it("still allows everyday verification commands after hardening", () => {
+    for (const ok of [
+      "python -m pytest tests/test_cli.py -q",
+      "pytest tests/test_cli.py::test_help_echo_loading_error -q",
+      "pytest -x --tb=short -k config",
+      "git diff -- src/flask/cli.py",
+      "git log --oneline -5 -- docs/cli.rst",
+      "git show HEAD --stat",
+      "git diff --no-ext-diff --stat",
+      'python -c "import flask"',
+      'python -c "import os.path"',
+      'python -c "from flask.helpers import get_debug_flag"',
+      "flask --app hello config",
+      "pytest tests/test_env.py",
+      "git diff -- .env.example",
+    ]) {
+      expect(checkCommand(ok).ok, ok).toBe(true);
+    }
+  });
+  it("refuses commands that delete or write files, read secrets, or reach outside the repo", () => {
+    for (const bad of [
+      'python -c "__import__(\'shutil\').rmtree(\'src\')"',
+      'python -c "import shutil"',
+      'python -c "import subprocess"',
+      "python -c \"open('x','w')\"",
+      'python -c "os.remove(\'a\')"',
+      "python -c \"print(os.environ)\"",
+      "pytest --basetemp=src",
+      "python -m pytest --basetemp src",
+      "pytest --junitxml=../../out.xml",
+      "git show HEAD:.env",
+      "git diff --no-index .env /dev/null",
+      "git diff -- config/.env.production",
+      "git show HEAD:deploy/id_rsa",
+      "git log -p -- server.pem",
+      "git diff --outp=x",
+      "git log --ext=x",
+      "git diff --no-ind a b",
+      "git show HEAD:.git/config",
+    ]) {
+      expect(checkCommand(bad).ok, bad).toBe(false);
+    }
+  });
 });
 
 describe("hunks", () => {
@@ -244,6 +287,55 @@ describe("proposal store", () => {
     await Promise.resolve();
     expect(resolved).toBe(true);
     expect(other.status).toBe("pending");
+  });
+  it("a cancel that lands while apply is reading the file writes nothing", async () => {
+    const root = tmp({ "f.txt": "a\n" });
+    const abs = path.join(root, "f.txt");
+    const store = new ProposalStore();
+    const p = store.create({ key: "k", turnId: "T", path: "f.txt", abs, original: "a\n", proposed: "b\n" });
+    store.decideAll(p.id, "accepted");
+    let fired = false;
+    const io = {
+      ...nodeIO,
+      read: async (a: string) => {
+        const text = await nodeIO.read(a);
+        if (!fired) {
+          fired = true;
+          await store.rollbackTurn("T", nodeIO); // the user presses Stop mid-read
+        }
+        return text;
+      },
+    };
+    const r = await store.apply(p.id, io);
+    expect(r.ok).toBe(false);
+    expect(p.status).toBe("discarded");
+    expect(fs.readFileSync(abs, "utf8")).toBe("a\n");
+    expect(store.turnChanges("T")).toHaveLength(0);
+  });
+  it("a cancel that lands while apply is writing the file is rolled back", async () => {
+    const root = tmp({ "f.txt": "a\n" });
+    const abs = path.join(root, "f.txt");
+    const store = new ProposalStore();
+    const p = store.create({ key: "k", turnId: "T", path: "f.txt", abs, original: "a\n", proposed: "b\n" });
+    store.decideAll(p.id, "accepted");
+    let fired = false;
+    let rollback: { reverted: string[] } | undefined;
+    const io = {
+      ...nodeIO,
+      write: async (a: string, text: string) => {
+        await nodeIO.write(a, text);
+        if (!fired) {
+          fired = true;
+          rollback = await store.rollbackTurn("T", nodeIO); // Stop arrives after the bytes hit disk
+        }
+      },
+    };
+    const r = await store.apply(p.id, io);
+    expect(rollback?.reverted).toEqual([]); // rollbackTurn could not see the change yet...
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/rolled back/);
+    expect(fs.readFileSync(abs, "utf8")).toBe("a\n"); // ...so apply reverted it itself
+    expect(store.turnChanges("T")).toHaveLength(0);
   });
   it("editKey is stable for the same arguments and differs otherwise", () => {
     const a = { path: "x.py", edits: [{ old_text: "a", new_text: "b" }] };
